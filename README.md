@@ -1,4 +1,6 @@
 # 99Tech DevOps Challenge #
+Independent solution repository maintained by [dom7hc](https://github.com/dom7hc), based on the [original challenge](https://github.com/99techteam/devops-challenge). This repository was created independently rather than through GitHub's fork feature.
+
 Note that if you fork this repository, your responses may be publicly linked to this repo (DO NO FORK).
 Please submit your application along with the solutions attached or linked.
 
