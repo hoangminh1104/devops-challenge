@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -eu
+if [[ $* == *index.html* ]]; then
+  cat "$MOCK_STATE/site/index.html"
+  if [[ ${CORRUPT_HTML:-no} == yes ]]; then echo '<!-- stale CDN HTML with matching release meta -->'; fi
+else
+  for arg; do
+    if [[ $arg == https://* ]]; then cat "$MOCK_STATE/site/${arg#https://example.test/}"; fi
+  done
+fi

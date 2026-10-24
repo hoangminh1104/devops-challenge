@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16.13-alpine
+    environment:
+      POSTGRES_PASSWORD: local-only-password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  redis:
+    image: redis:7.4.8-alpine
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  api:
+    image: ${API_IMAGE:-problem4-api:local}
+    build:
+      context: ../..
+      dockerfile: src/problem4/Dockerfile
+      args:
+        RELEASE_SHA: ${RELEASE_SHA:-local}
+    init: true
+    environment:
+      DB_HOST: postgres
+      DB_PASSWORD: local-only-password
+      REDIS_HOST: redis
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${API_PORT:-3000}:3000"
+    stop_grace_period: 15s
+  frontend:
+    image: ${FRONTEND_IMAGE:-problem4-frontend:local}
+    build:
+      context: frontend
+      args:
+        RELEASE_SHA: ${RELEASE_SHA:-0000000000000000000000000000000000000000}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+volumes:
+  postgres-data:

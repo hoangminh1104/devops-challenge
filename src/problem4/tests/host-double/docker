@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -eu
+echo "$*" >> "$MOCK_STATE/docker.log"
+case $1 in
+  load) ;;
+  image)
+    image=${!#}; echo "${image:7:40}"
+    ;;
+  compose)
+    if [[ -n ${EXPECT_HOST_CONFIG:-} ]]; then
+      [[ ${API_BIND:-} == 0.0.0.0 && ${API_PORT:-} == 4300 && ${API_ENV_FILE:-} == /etc/custom-api.env && ${DATA_NETWORK:-} == custom-data ]] || exit 98
+      [[ $* == *'--project-name custom-api '* ]] || exit 98
+      echo 'persistent host config' >> "$MOCK_STATE/config.log"
+    fi
+    shift
+    while (($#)); do
+      case $1 in
+        --project-name|-f) shift 2 ;;
+        *) break ;;
+      esac
+    done
+    case $1 in
+      up)
+        sha=${API_IMAGE:7:40}
+        echo "$sha" > "$MOCK_STATE/active"
+        [[ ${FAIL_START:-} != "$sha" ]] || exit 1
+        ;;
+      ps) cat "$MOCK_STATE/active" ;;
+      logs|stop) ;;
+      *) exit 99 ;;
+    esac
+    ;;
+  exec)
+    active=$2 expected=${!#}
+    [[ $active == "$expected" && ${FAIL_SHA:-} != "$active" && ${STALE_SHA:-} != "$active" && ${BAD_REDIS:-} != "$active" ]]
+    ;;
+  *) exit 99 ;;
+esac

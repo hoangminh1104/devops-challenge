@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -eu
+echo "$*" >> "$MOCK_STATE/aws.log"
+case "$1 $2" in
+  's3api put-object')
+    shift 2
+    conditional=no
+    while (($#)); do
+      case "$1" in
+        --key) key=$2; shift 2 ;;
+        --body) body=$2; shift 2 ;;
+        --if-none-match) [[ $2 == '*' ]] || exit 99; conditional=yes; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    dest="$MOCK_STATE/archive/$key"
+    [[ $conditional == yes ]] || { echo 'Missing conditional creation' >&2; exit 99; }
+    [[ ! -f $dest ]] || exit 1
+    mkdir -p "$(dirname "$dest")"; cp "$body" "$dest"
+    echo '{}'
+    ;;
+  's3 cp')
+    src=$3 dest=$4
+    [[ ${FAIL_ASSETS:-no} != yes || $dest != s3://site-test/assets/ ]] || exit 1
+    if [[ $src == s3://archive-test/* ]]; then src="$MOCK_STATE/archive/${src#s3://archive-test/}"; fi
+    if [[ $dest == s3://archive-test/* ]]; then dest="$MOCK_STATE/archive/${dest#s3://archive-test/}"; fi
+    if [[ $dest == s3://site-test/* ]]; then dest="$MOCK_STATE/site/${dest#s3://site-test/}"; fi
+    if [[ $src == */ ]]; then mkdir -p "$dest"; cp -r "$src". "$dest"; else mkdir -p "$(dirname "$dest")"; cp "$src" "$dest"; fi
+    ;;
+  'ssm send-command')
+    for arg; do
+      if [[ $arg == file://* ]]; then cp "${arg#file://}" "$MOCK_STATE/parameters.json"; fi
+    done
+    echo mock-command-id
+    ;;
+  'ssm get-command-invocation')
+    n=0; [[ ! -f $MOCK_STATE/polls ]] || n=$(cat "$MOCK_STATE/polls")
+    echo "$((n+1))" > "$MOCK_STATE/polls"
+    if [[ $n == 0 ]]; then echo InvocationDoesNotExist >&2; exit 1; fi
+    if [[ $n == 1 ]]; then echo '{"Status":"InProgress"}'; else printf '{"Status":"%s","StandardErrorContent":"remote diagnostics"}\n' "${SSM_STATUS:-Success}"; fi
+    ;;
+  'cloudfront create-invalidation') echo mock-invalidation ;;
+  'cloudfront wait') ;;
+  *) echo "Unexpected AWS call: $*" >&2; exit 99 ;;
+esac

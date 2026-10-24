@@ -1,0 +1,12 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"], "Resource": "arn:aws:s3:::ARTIFACT_BUCKET/backend/*" },
+    { "Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::ARTIFACT_BUCKET", "Condition": { "StringLike": { "s3:prefix": "backend/*" } } },
+    { "Effect": "Allow", "Action": "ssm:SendCommand", "Resource": [
+      "arn:aws:ssm:REGION::document/AWS-RunShellScript",
+      "arn:aws:ec2:REGION:ACCOUNT_ID:instance/INSTANCE_ID"
+    ] },
+    { "Effect": "Allow", "Action": "ssm:GetCommandInvocation", "Resource": "*" }
+  ]
+}

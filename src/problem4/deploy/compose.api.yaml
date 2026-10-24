@@ -1,0 +1,26 @@
+# Included in every tested release. No dependency services or volumes here.
+services:
+  api:
+    image: ${API_IMAGE:?Use the image ID from the release}
+    pull_policy: never
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: ${API_ENV_FILE:-/etc/ship-api.env}
+        format: raw
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
+    networks:
+      - data
+    stop_grace_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+networks:
+  data:
+    external: true
+    name: ${DATA_NETWORK:-ship-api-data}

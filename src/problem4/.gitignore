@@ -1,0 +1,5 @@
+frontend/dist/
+*.tar.gz
+*.env
+!deploy/api.env.example
+frontend/frontend.tar.gz

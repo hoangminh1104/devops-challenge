@@ -1,0 +1,86 @@
+name: Problem 4 frontend
+on:
+  pull_request:
+    paths: ['src/problem4/frontend/**', 'src/problem4/scripts/**', 'src/problem4/tests/**', 'src/problem4/deploy/**', '.github/workflows/problem4-frontend.yml']
+  push:
+    branches: [main]
+    paths: ['src/problem4/frontend/**', 'src/problem4/scripts/**', 'src/problem4/tests/**', 'src/problem4/deploy/**', '.github/workflows/problem4-frontend.yml']
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Previously archived full commit SHA to recover
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  build:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - run: npm ci && npm test && npm run build
+        working-directory: src/problem4/frontend
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+      - name: Require production API URL for publication
+        if: github.event_name == 'push'
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+        run: '[[ $API_BASE_URL == https://* ]]'
+      - run: bash src/problem4/tests/releases.sh
+      - name: Package validated static output
+        working-directory: src/problem4/frontend/dist
+        run: tar -czf ../frontend.tar.gz index.html assets/*.js
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frontend-${{ github.sha }}
+          path: src/problem4/frontend/frontend.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+  deploy:
+    needs: build
+    if: >-
+      always() && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push' && needs.build.result == 'success') || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production-frontend
+    concurrency:
+      group: problem4-production-frontend
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ARTIFACT_BUCKET: ${{ vars.ARTIFACT_BUCKET }}
+      SITE_BUCKET: ${{ vars.SITE_BUCKET }}
+      DISTRIBUTION_ID: ${{ vars.DISTRIBUTION_ID }}
+      SITE_URL: ${{ vars.SITE_URL }}
+      RELEASE_SHA: ${{ inputs.release_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Validate recovery identifier
+        run: '[[ $RELEASE_SHA =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: github.event_name == 'push'
+        with:
+          name: frontend-${{ github.sha }}
+          path: release
+      - uses: aws-actions/configure-aws-credentials@ff717079ee2060e4bcee96c4779b553acc87447c # v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: frontend-${{ github.run_id }}
+      - name: Release tested archive
+        if: github.event_name == 'push'
+        run: bash src/problem4/scripts/release-frontend.sh release "$RELEASE_SHA" release/frontend.tar.gz
+      - name: Recover archived release
+        if: github.event_name == 'workflow_dispatch'
+        run: bash src/problem4/scripts/release-frontend.sh recover "$RELEASE_SHA"

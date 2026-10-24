@@ -6,9 +6,9 @@ const app = express();
 
 const pool = new Pool({
   host: process.env.DB_HOST,
-  user: "postgres",
-  password: "postgres",
-  database: "postgres",
+  user: process.env.DB_USER || "postgres",
+  password: process.env.DB_PASSWORD || "postgres",
+  database: process.env.DB_NAME || "postgres",
   port: 5432,
   connectionTimeoutMillis: 2000,
   query_timeout: 5000,
@@ -22,10 +22,24 @@ const redis = new Redis({
   host: process.env.REDIS_HOST,
   port: 6379,
   maxRetriesPerRequest: 1,
+  connectTimeout: 2000,
+  enableOfflineQueue: false,
 });
 
 redis.on("error", (err) => {
   console.error("Redis error:", err.message);
+});
+
+const release = process.env.RELEASE_SHA || "local";
+// One explicitly configured browser origin; same-origin local requests need no CORS.
+app.use((req, res, next) => {
+  if (process.env.CORS_ORIGIN) res.vary("Origin");
+  if (process.env.CORS_ORIGIN && req.headers.origin === process.env.CORS_ORIGIN) {
+    res.set("Access-Control-Allow-Origin", process.env.CORS_ORIGIN);
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    if (req.method === "OPTIONS") return res.sendStatus(204);
+  }
+  next();
 });
 
 app.get("/api/users", async (req, res) => {
@@ -44,7 +58,7 @@ app.get("/api/users", async (req, res) => {
 });
 
 app.get("/status", (req, res) => {
-  res.json({ status: "ok" });
+  res.json({ status: "ok", release });
 });
 
 const withTimeout = (promise, ms) => {
@@ -82,10 +96,25 @@ app.get("/api/health", async (req, res) => {
 
   res.status(status === "down" ? 503 : 200).json({
     status,
+    release,
     postgres: { ok: postgres.ok, ms: postgres.ms, error: postgres.error },
     redis: { ok: redisCheck.ok, ms: redisCheck.ms, error: redisCheck.error },
     slowQueries,
   });
 });
 
-app.listen(3000, () => console.log("API running on 3000"));
+const server = app.listen(3000, () => console.log("API running on 3000"));
+let stopping = false;
+async function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  const deadline = setTimeout(() => process.exit(1), 10000);
+  deadline.unref();
+  server.close(async () => {
+    await Promise.allSettled([pool.end(), redis.quit()]);
+    redis.disconnect();
+    clearTimeout(deadline);
+  });
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

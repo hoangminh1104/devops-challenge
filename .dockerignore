@@ -1,0 +1,7 @@
+**/node_modules
+**/dist
+.git
+**/*.tar
+**/*.tar.gz
+**/.env
+**/*.env
