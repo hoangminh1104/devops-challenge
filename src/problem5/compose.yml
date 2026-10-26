@@ -1,0 +1,97 @@
+name: dom7hc-practice-p5
+
+x-api: &api
+  image: dom7hc-practice-p5-api:local
+  build:
+    context: ./app
+    target: runtime
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  environment: &api-env
+    DB_HOST: db
+    DB_USER: p5_api
+    DB_PASSWORD_FILE: /run/secrets/api_password
+  secrets: [api_password, jwt_public]
+  depends_on:
+    db: {condition: service_healthy}
+  networks: [edge, backend]
+  healthcheck:
+    test: [CMD, node, -e, "require('http').get('http://127.0.0.1:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+    interval: 2s
+    timeout: 2s
+    retries: 20
+
+services:
+  db:
+    image: postgres:18-alpine@sha256:898c60cb390d1085bc97bdd6a1ae968757421df394b071848b52b1c09c89d6a5
+    environment:
+      POSTGRES_DB: p5_security
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/admin_password
+    secrets: [admin_password, migrator_password, api_password, worker_password]
+    volumes:
+      - p5-data:/var/lib/postgresql
+      - ./db/010-bootstrap.sh:/docker-entrypoint-initdb.d/010-bootstrap.sh:ro
+      - ./db/security.sql:/opt/p5/security.sql:ro
+    networks: [backend]
+    healthcheck:
+      test: [CMD, pg_isready, -h, 127.0.0.1, -U, postgres, -d, p5_security]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  api-a:
+    <<: *api
+    environment: {<<: *api-env, REPLICA: api-a}
+    ports: ["127.0.0.1:18085:3000"]
+  api-b:
+    <<: *api
+    environment: {<<: *api-env, REPLICA: api-b}
+    ports: ["127.0.0.1:18086:3000"]
+  worker:
+    image: dom7hc-practice-p5-api:local
+    pull_policy: never
+    command: [node, src/worker.js]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      DB_HOST: db
+      DB_USER: p5_worker
+      DB_PASSWORD_FILE: /run/secrets/worker_password
+    secrets: [worker_password]
+    networks: [backend]
+    depends_on:
+      db: {condition: service_healthy}
+  tests:
+    profiles: [verify]
+    # Trusted fixture runner needs to write sanitized evidence on Linux hosts.
+    # Runtime API/worker containers remain the image's unprivileged node user.
+    user: "0:0"
+    image: dom7hc-practice-p5-api:local
+    pull_policy: never
+    command: [node, --test, --test-concurrency=1, test/security.test.js]
+    environment:
+      DB_HOST: db
+      P5_TEST_DATABASE: p5_security
+    secrets: [admin_password, migrator_password, api_password, worker_password, jwt_private]
+    volumes: ["./evidence:/evidence", "./app/test:/app/test:ro"]
+    networks: [backend]
+    depends_on:
+      api-a: {condition: service_healthy}
+      api-b: {condition: service_healthy}
+
+networks:
+  edge: {}
+  backend: {internal: true}
+volumes:
+  p5-data: {}
+secrets:
+  admin_password: {file: ./.local/admin-password.txt}
+  migrator_password: {file: ./.local/migrator-password.txt}
+  api_password: {file: ./.local/api-password.txt}
+  worker_password: {file: ./.local/worker-password.txt}
+  jwt_private: {file: ./.local/jwt-private.pem}
+  jwt_public: {file: ./.local/jwt-public.pem}

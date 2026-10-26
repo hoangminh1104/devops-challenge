@@ -1,0 +1,13 @@
+{
+  "account_id": "730335245469",
+  "aws_profile": "AWSAdministratorAccess-730335245469",
+  "region": "ap-southeast-1",
+  "checked_at_epoch": 1792906636.673295,
+  "format_passed": true,
+  "validation_valid": true,
+  "validation_errors": 0,
+  "validation_warnings": 0,
+  "plan_exit_code": 0,
+  "no_infrastructure_changes": true,
+  "plan_tail": ".. [id=ny7blnm]\naws_apigatewayv2_route.private[\"GET /v1/balances\"]: Refreshing state... [id=nfth46e]\naws_apigatewayv2_route.private[\"GET /v1/orders\"]: Refreshing state... [id=1gng26u]\naws_apigatewayv2_route.private[\"GET /v1/orders/{id}\"]: Refreshing state... [id=1h70wba]\naws_apigatewayv2_route.private[\"POST /v1/orders\"]: Refreshing state... [id=u6pa6mr]\naws_apigatewayv2_route.private[\"DELETE /v1/orders/{id}\"]: Refreshing state... [id=g5tze7a]\naws_db_instance.main: Refreshing state... [id=db-7V45FZHFHBPDIDW4Q72NKVX6AA]\naws_iam_role_policy.secret: Refreshing state... [id=dom7hc-practice-execution:dom7hc-practice-database-secret]\naws_cloudwatch_metric_alarm.database_cpu: Refreshing state... [id=dom7hc-practice-db-cpu]\naws_ecs_task_definition.app[\"worker\"]: Refreshing state... [id=dom7hc-practice-worker]\naws_ecs_task_definition.app[\"api\"]: Refreshing state... [id=dom7hc-practice-api]\naws_ecs_service.api: Refreshing state... [id=arn:aws:ecs:ap-southeast-1:730335245469:service/dom7hc-practice-cluster/dom7hc-practice-api]\naws_ecs_service.worker: Refreshing state... [id=arn:aws:ecs:ap-southeast-1:730335245469:service/dom7hc-practice-cluster/dom7hc-practice-worker]\naws_appautoscaling_target.api: Refreshing state... [id=service/dom7hc-practice-cluster/dom7hc-practice-api]\naws_appautoscaling_policy.cpu: Refreshing state... [id=dom7hc-practice-cpu]\n\nNo changes. Your infrastructure matches the configuration.\n\nTerraform has compared your real infrastructure against your configuration\nand found no differences, so no changes are needed.\nReleasing state lock. This may take a few moments...\n"
+}

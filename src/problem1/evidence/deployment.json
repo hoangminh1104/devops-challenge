@@ -1,0 +1,96 @@
+{
+  "account_id": "730335245469",
+  "aws_profile": "AWSAdministratorAccess-730335245469",
+  "region": "ap-southeast-1",
+  "checked_at_epoch": 1792906670.6852942,
+  "api_url": "https://v7kn37xo96.execute-api.ap-southeast-1.amazonaws.com",
+  "tasks": [
+    {
+      "arn": "arn:aws:ecs:ap-southeast-1:730335245469:task/dom7hc-practice-cluster/17ce53ab4d5e45cc80e6f8ee7452386b",
+      "service": "service:dom7hc-practice-api",
+      "az": "ap-southeast-1a",
+      "status": "RUNNING",
+      "health": "HEALTHY",
+      "started_at": "2026-10-25T12:12:16.209000+07:00",
+      "definition": "arn:aws:ecs:ap-southeast-1:730335245469:task-definition/dom7hc-practice-api:1",
+      "images": [
+        {
+          "name": "api",
+          "digest": "sha256:9413cc7d1a3bceca5c2ee15c9b9279ca7b81e640fe4f4dea6dad3d05b6fc58a8"
+        }
+      ]
+    },
+    {
+      "arn": "arn:aws:ecs:ap-southeast-1:730335245469:task/dom7hc-practice-cluster/56458b60142f40a8b9c31c39f5281909",
+      "service": "service:dom7hc-practice-worker",
+      "az": "ap-southeast-1a",
+      "status": "RUNNING",
+      "health": "HEALTHY",
+      "started_at": "2026-10-25T12:12:02.585000+07:00",
+      "definition": "arn:aws:ecs:ap-southeast-1:730335245469:task-definition/dom7hc-practice-worker:1",
+      "images": [
+        {
+          "name": "worker",
+          "digest": "sha256:9413cc7d1a3bceca5c2ee15c9b9279ca7b81e640fe4f4dea6dad3d05b6fc58a8"
+        }
+      ]
+    },
+    {
+      "arn": "arn:aws:ecs:ap-southeast-1:730335245469:task/dom7hc-practice-cluster/68ad30e35a2943459d796fce27229dfb",
+      "service": "service:dom7hc-practice-api",
+      "az": "ap-southeast-1b",
+      "status": "RUNNING",
+      "health": "HEALTHY",
+      "started_at": "2026-10-25T12:12:15.057000+07:00",
+      "definition": "arn:aws:ecs:ap-southeast-1:730335245469:task-definition/dom7hc-practice-api:1",
+      "images": [
+        {
+          "name": "api",
+          "digest": "sha256:9413cc7d1a3bceca5c2ee15c9b9279ca7b81e640fe4f4dea6dad3d05b6fc58a8"
+        }
+      ]
+    },
+    {
+      "arn": "arn:aws:ecs:ap-southeast-1:730335245469:task/dom7hc-practice-cluster/fd9e72972f5d4baea10bef29dfb1a3e9",
+      "service": "service:dom7hc-practice-worker",
+      "az": "ap-southeast-1b",
+      "status": "RUNNING",
+      "health": "HEALTHY",
+      "started_at": "2026-10-25T12:12:02.886000+07:00",
+      "definition": "arn:aws:ecs:ap-southeast-1:730335245469:task-definition/dom7hc-practice-worker:1",
+      "images": [
+        {
+          "name": "worker",
+          "digest": "sha256:9413cc7d1a3bceca5c2ee15c9b9279ca7b81e640fe4f4dea6dad3d05b6fc58a8"
+        }
+      ]
+    }
+  ],
+  "database": {
+    "DBInstanceIdentifier": "dom7hc-practice-postgres",
+    "DBInstanceStatus": "available",
+    "DBInstanceClass": "db.t4g.medium",
+    "Engine": "postgres",
+    "EngineVersion": "18.3",
+    "MultiAZ": true,
+    "AvailabilityZone": "ap-southeast-1b",
+    "SecondaryAvailabilityZone": "ap-southeast-1a",
+    "PubliclyAccessible": false,
+    "StorageEncrypted": true,
+    "BackupRetentionPeriod": 7
+  },
+  "images": [
+    {
+      "tags": [
+        "load-v5"
+      ],
+      "digest": "sha256:57611865a15590113ca93899807eb723a20fed46f64df1c4b5e5a0959f36daaf"
+    },
+    {
+      "tags": [
+        "v6"
+      ],
+      "digest": "sha256:9413cc7d1a3bceca5c2ee15c9b9279ca7b81e640fe4f4dea6dad3d05b6fc58a8"
+    }
+  ]
+}

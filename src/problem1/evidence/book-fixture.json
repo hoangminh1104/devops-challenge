@@ -1,0 +1,14 @@
+{
+  "account_id": "730335245469",
+  "aws_profile": "AWSAdministratorAccess-730335245469",
+  "region": "ap-southeast-1",
+  "event": "book_seeded",
+  "fixture_orders": 400,
+  "created": 400,
+  "replayed": 0,
+  "fixture_levels_per_side": 20,
+  "fixture_orders_per_level": 10,
+  "bid_levels": 20,
+  "ask_levels": 20,
+  "checked_at_epoch": 1792905588.1382303
+}

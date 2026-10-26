@@ -1,0 +1,69 @@
+{
+  "account_id": "730335245469",
+  "aws_profile": "AWSAdministratorAccess-730335245469",
+  "region": "ap-southeast-1",
+  "checked_at_epoch": 1792853877.685066,
+  "catalog": {
+    "fargate_vcpu": [
+      {
+        "description": "AWS Fargate - vCPU - Asia Pacific (Singapore)",
+        "unit": "hours",
+        "usd": "0.0505600000",
+        "begin": "0",
+        "end": "Inf"
+      }
+    ],
+    "fargate_gb": [
+      {
+        "description": "AWS Fargate - Memory - Asia Pacific (Singapore)",
+        "unit": "hours",
+        "usd": "0.0055300000",
+        "begin": "0",
+        "end": "Inf"
+      }
+    ],
+    "http_api": [
+      {
+        "description": "$1.25/million requests - API Gateway HTTP API (first 300 million)",
+        "unit": "Requests",
+        "usd": "0.0000012500",
+        "begin": "0",
+        "end": "300000000"
+      },
+      {
+        "description": "$1.13/million requests - API Gateway HTTP API (more than 300 million)",
+        "unit": "Requests",
+        "usd": "0.0000011300",
+        "begin": "300000000",
+        "end": "Inf"
+      }
+    ],
+    "endpoint_az_hour": [
+      {
+        "description": "$0.013 per VPC Endpoint Hour",
+        "unit": "Hrs",
+        "usd": "0.0130000000",
+        "begin": "0",
+        "end": "Inf"
+      }
+    ],
+    "rds_multiaz": [
+      {
+        "description": "$ 0.203 per RDS db.t4g.medium Multi-AZ instance hour (or partial hour) running PostgreSQL",
+        "unit": "Hrs",
+        "usd": "0.2030000000",
+        "begin": "0",
+        "end": "Inf"
+      }
+    ],
+    "alb_hour": [
+      {
+        "description": "$0.0252 per Application LoadBalancer-hour (or partial hour)",
+        "unit": "Hrs",
+        "usd": "0.0252000000",
+        "begin": "0",
+        "end": "Inf"
+      }
+    ]
+  }
+}

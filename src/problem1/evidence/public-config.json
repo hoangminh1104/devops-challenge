@@ -1,0 +1,11 @@
+{
+  "account_id": "730335245469",
+  "aws_profile": "AWSAdministratorAccess-730335245469",
+  "region": "ap-southeast-1",
+  "api_url": "https://v7kn37xo96.execute-api.ap-southeast-1.amazonaws.com",
+  "user_pool_id": "ap-southeast-1_F8hf7FtAS",
+  "client_id": "486lodomim7jlkj3ge41k5ua7n",
+  "issuer": "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_F8hf7FtAS",
+  "auth_flow": "USER_PASSWORD_AUTH",
+  "credentials": "Share the demo username/password privately; no IAM credentials are needed for this client auth flow."
+}

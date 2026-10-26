@@ -1,0 +1,79 @@
+{
+  "exercise": 5,
+  "project": "dom7hc-practice-p5",
+  "executed_at": "2026-10-26T00:48:14.390Z",
+  "environment": "isolated Docker Compose; PostgreSQL 18; two API replicas",
+  "cases": [
+    {
+      "name": "missing, malformed, expired, wrong-audience, wrong-issuer and forged tokens are rejected",
+      "status": "passed",
+      "duration_ms": 248
+    },
+    {
+      "name": "read-only scope can read balances but cannot create or cancel orders",
+      "status": "passed",
+      "duration_ms": 48
+    },
+    {
+      "name": "ownership and identity-header substitution cannot expose or cancel another account order",
+      "status": "passed",
+      "duration_ms": 87
+    },
+    {
+      "name": "API identity cannot read base tables, perform DDL, rewrite ledger or assume an owner role",
+      "status": "passed",
+      "duration_ms": 115
+    },
+    {
+      "name": "API and worker cannot invoke each other operations; migration has separate authority",
+      "status": "passed",
+      "duration_ms": 82
+    },
+    {
+      "name": "concurrent idempotent submissions across replicas reserve and charge quota only once",
+      "status": "passed",
+      "duration_ms": 79
+    },
+    {
+      "name": "simultaneous submissions cannot overspend and a rejected request creates no reservation",
+      "status": "passed",
+      "duration_ms": 33
+    },
+    {
+      "name": "shared per-account quota survives replica switching and preserves other users and retries",
+      "status": "passed",
+      "duration_ms": 79
+    },
+    {
+      "name": "concurrent admission stops at the configured shared capacity without reserving rejected funds",
+      "status": "passed",
+      "duration_ms": 74
+    },
+    {
+      "name": "cancellation works during admission closure and the worker releases funds exactly once",
+      "status": "passed",
+      "duration_ms": 261
+    },
+    {
+      "name": "invalid amounts, SQL-shaped input and direct database validation bypass attempts fail closed",
+      "status": "passed",
+      "duration_ms": 104
+    },
+    {
+      "name": "security-definer functions have a non-login owner, pinned path and no PUBLIC execution grant",
+      "status": "passed",
+      "duration_ms": 17
+    }
+  ],
+  "total": 12,
+  "passed": 12,
+  "failed": 0,
+  "expected_cases": 12,
+  "all_checks_passed": true,
+  "financial_reconciliation": {
+    "negative": 0,
+    "unbalanced": 0,
+    "unreconciled": 0
+  },
+  "scope": "Security lab only. No AWS changes and no Problem 1 runtime dependencies. This is not a penetration test or performance benchmark."
+}

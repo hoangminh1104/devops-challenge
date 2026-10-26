@@ -1,0 +1,59 @@
+{
+  "project": "dom7hc-practice-p5",
+  "executed_at": "2026-10-25T11:35:04.622Z",
+  "backend_network_internal": true,
+  "runtime_source_matches": true,
+  "source_hashes": {
+    "src/api.js": "11a4d3cd7afe17629153344d76ae16cbfbecb30fcffcb5e8a48d3e15b661fb55",
+    "src/db.js": "06995fbd18293216caa011938ae5b59be63766733911a0a657637471decc6d65",
+    "src/worker.js": "e86659dfa3e17f190180c6c0df303dc9374a4ae4d2e0c69777515a316e139677",
+    "package.json": "9df60a48fb6ca9095edf24d056dbf63fc5349d7723632fb74c4fbbbe974f4089",
+    "package-lock.json": "404a8a76f53a63c2f0e6005542f9631f872c19a4cdcf0d67dccf6f179359066b"
+  },
+  "services": [
+    {
+      "service": "api-a",
+      "user": "node",
+      "read_only_root": true,
+      "capabilities_dropped": true,
+      "no_new_privileges": true,
+      "secret_mounts": [
+        "/run/secrets/api_password",
+        "/run/secrets/jwt_public"
+      ],
+      "secret_mounts_read_only": true,
+      "loopback_only": true
+    },
+    {
+      "service": "api-b",
+      "user": "node",
+      "read_only_root": true,
+      "capabilities_dropped": true,
+      "no_new_privileges": true,
+      "secret_mounts": [
+        "/run/secrets/api_password",
+        "/run/secrets/jwt_public"
+      ],
+      "secret_mounts_read_only": true,
+      "loopback_only": true
+    },
+    {
+      "service": "db",
+      "database_port_published": false
+    },
+    {
+      "service": "worker",
+      "user": "node",
+      "read_only_root": true,
+      "capabilities_dropped": true,
+      "no_new_privileges": true,
+      "secret_mounts": [
+        "/run/secrets/worker_password"
+      ],
+      "secret_mounts_read_only": true,
+      "published_ports": [],
+      "network_scope": "backend-only"
+    }
+  ],
+  "passed": true
+}

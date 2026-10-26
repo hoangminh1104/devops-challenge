@@ -1,0 +1,9 @@
+{
+  "name": "dom7hc-practice-p5",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=24"},
+  "scripts": {"start": "node src/api.js", "test": "node --test --test-concurrency=1 test/security.test.js"},
+  "dependencies": {"express": "^5.1.0", "jose": "^6.1.0", "pg": "^8.16.3"}
+}

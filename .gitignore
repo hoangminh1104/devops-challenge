@@ -22,3 +22,14 @@ coverage/
 # Operating-system files
 .DS_Store
 Thumbs.db
+
+# Exercise runtime credentials and generated caches
+src/problem1/.local/
+src/problem5/.local/
+__pycache__/
+*.pyc
+
+# Private authoring artifacts are not challenge deliverables
+**/.memlog.md
+**/ARCHITECTURE-SPINE.md
+**/implementation-artifacts/

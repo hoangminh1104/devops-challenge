@@ -1,0 +1,33 @@
+{
+  "account_id": "730335245469",
+  "aws_profile": "AWSAdministratorAccess-730335245469",
+  "region": "ap-southeast-1",
+  "build_id": "dom7hc-practice-build:c524676e-0223-48b5-8007-39ae24534de1",
+  "image_tag": "v6",
+  "source_version": "M4T.qoE6chitvHBxtXVLlbY9MJIuqdLt",
+  "status": "SUCCEEDED",
+  "database_fixture": "isolated PostgreSQL 18 container inside CodeBuild",
+  "counts": {
+    "tests": 11,
+    "pass": 11,
+    "fail": 0
+  },
+  "test_output": [
+    "\u2714 acceptance atomically reserves funds and concurrent retries create only one order (185.865674ms)",
+    "\u2714 concurrent requests cannot overspend and rejected acceptance leaves no order or command (63.206317ms)",
+    "\u2714 matching settles at maker price and releases buyer price improvement (87.374911ms)",
+    "\u2714 best price wins, then engine admission sequence; partial residual stays reserved (102.363807ms)",
+    "\u2714 pending cancellation and its retries release reservation once (75.287478ms)",
+    "\u2714 self-trade prevention cancels the incoming remainder without changing resting maker (69.413164ms)",
+    "\u2714 settlement failure rolls back fully and another worker can retry the durable command (94.394473ms)",
+    "\u2714 two workers cannot duplicate fills, including a command spanning the fill batch limit (297.00945ms)",
+    "\u2714 fractional amounts settle exactly without floating-point loss (73.472457ms)",
+    "\u2714 API denies cross-account order access, missing identity, invalid amounts and excessive depth (101.429181ms)",
+    "\u2714 history cursor preserves every order when timestamps tie (231.291071ms)",
+    "\u2139 tests 11",
+    "\u2139 pass 11",
+    "\u2139 fail 0",
+    "\u2139 duration_ms 1528.995612"
+  ],
+  "checked_at_epoch": 1792854092.2135284
+}

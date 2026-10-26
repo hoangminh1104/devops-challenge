@@ -1,0 +1,6 @@
+.local/
+**/node_modules/
+*.log
+.env*
+!.env.example
+__pycache__/

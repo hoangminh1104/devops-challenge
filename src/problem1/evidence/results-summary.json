@@ -1,0 +1,35 @@
+{
+  "account_id": "730335245469",
+  "aws_profile": "AWSAdministratorAccess-730335245469",
+  "region": "ap-southeast-1",
+  "generated_at_epoch": 1792906351.902197,
+  "runs": [
+    {
+      "run_id": "1792905854-mixed",
+      "evidence": "load-1792905854-mixed.json",
+      "profile": "mixed",
+      "offered_rps": 500,
+      "measured_seconds": 180,
+      "main_requests": 90001,
+      "achieved_main_rps": 500.00555555555553,
+      "aggregate_p99_ms": 29,
+      "route_p99_ms": {
+        "book": 27,
+        "balances": 36,
+        "history": 21,
+        "place": 54,
+        "trades": 13
+      },
+      "unexpected_status_rate": 0,
+      "dropped_main_iterations": 0,
+      "all_acceptance_checks_passed": true,
+      "dropped_iteration_scope": "entire continuous run, including warm-up",
+      "queue_peak_pending_sampled": 8,
+      "queue_peak_age_seconds_sampled": 0.190063,
+      "observed_empty_queue_seconds_after_task_stop": null,
+      "queue_peak_age_seconds_during_drain_sampled": null,
+      "api_task_definition": "arn:aws:ecs:ap-southeast-1:730335245469:task-definition/dom7hc-practice-api:1",
+      "worker_task_definition": "arn:aws:ecs:ap-southeast-1:730335245469:task-definition/dom7hc-practice-worker:1"
+    }
+  ]
+}

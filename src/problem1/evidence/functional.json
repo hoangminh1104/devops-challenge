@@ -1,0 +1,19 @@
+{
+  "account_id": "730335245469",
+  "aws_profile": "AWSAdministratorAccess-730335245469",
+  "region": "ap-southeast-1",
+  "api_url": "https://v7kn37xo96.execute-api.ap-southeast-1.amazonaws.com",
+  "passed": [
+    "public markets HTTPS",
+    "missing JWT rejected",
+    "spoofed identity rejected at gateway",
+    "Cognito access token authorized",
+    "ID token rejected because access-token scope is required",
+    "durable acceptance and idempotency",
+    "asynchronous matching completed",
+    "cross-account ownership enforced",
+    "authenticated caller cannot override gateway identity",
+    "cancellation processed"
+  ],
+  "checked_at_epoch": 1792905528.6928372
+}

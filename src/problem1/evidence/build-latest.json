@@ -1,0 +1,24 @@
+{
+  "account_id": "730335245469",
+  "aws_profile": "AWSAdministratorAccess-730335245469",
+  "region": "ap-southeast-1",
+  "id": "dom7hc-practice-build:c524676e-0223-48b5-8007-39ae24534de1",
+  "status": "SUCCEEDED",
+  "image_tag": "v6",
+  "source_version": "M4T.qoE6chitvHBxtXVLlbY9MJIuqdLt",
+  "logs": {
+    "groupName": "/dom7hc-practice/build",
+    "streamName": "images/c524676e-0223-48b5-8007-39ae24534de1",
+    "deepLink": "https://console.aws.amazon.com/cloudwatch/home?region=ap-southeast-1#logsV2:log-groups/log-group/$252Fdom7hc-practice$252Fbuild/log-events/images$252Fc524676e-0223-48b5-8007-39ae24534de1",
+    "cloudWatchLogsArn": "arn:aws:logs:ap-southeast-1:730335245469:log-group:/dom7hc-practice/build:log-stream:images/c524676e-0223-48b5-8007-39ae24534de1",
+    "cloudWatchLogs": {
+      "status": "ENABLED",
+      "groupName": "/dom7hc-practice/build",
+      "streamName": "images"
+    },
+    "s3Logs": {
+      "status": "DISABLED",
+      "encryptionDisabled": false
+    }
+  }
+}
