@@ -37,4 +37,4 @@ Sources: [raw run](load-1792905854-mixed.json), [summary](results-summary.json),
 
 Sources: [deployment.json](deployment.json), [infrastructure-check.json](infrastructure-check.json). Task/database failover was not rerun in this deployment; no new fault-injection or restore RTO/RPO result is claimed.
 
-Reproduce with the [acceptance test guide](../SOLUTION.md#acceptance-test-guide). Live tests write simulated data and create short-lived paid tasks. Credentials are supplied privately; no tokens, passwords, private keys or Terraform state are included here.
+Reproduce with the [acceptance test guide](../TESTING.md#acceptance-checks). Live tests write simulated data and create short-lived paid tasks. Credentials are supplied privately; no tokens, passwords, private keys or Terraform state are included here.

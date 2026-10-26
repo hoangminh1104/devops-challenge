@@ -1,186 +1,78 @@
 # Problem 1 — Building Castle in the Cloud
 
-An API-only spot-trading demonstration on AWS Singapore (`ap-southeast-1`), named **dom7hc-practice**.
+## Assumptions and why
 
-**Implemented:** BTC-USDT limit orders, asynchronous matching, cancellation, order-book/trade reads, account balances and history. Accounts hold simulated funds. Custody, deposits, withdrawals, derivatives and a frontend are outside this slice.
+- **A small spot-trading slice demonstrates the infrastructure.** I implemented BTC-USDT limit orders, matching, cancellation, balances, order history and market-data reads. Accounts use simulated funds; there is no custody or withdrawal flow.
+- **The response acknowledges durable acceptance.** A `202` means the order, funds reservation and work command committed. Matching happens asynchronously, so execution delay is monitored separately.
+- **The performance target is regional and workload-specific.** I tested 500 requests/second from Singapore with 10% order submissions. This does not establish the same latency for every traffic mix or distant clients.
 
-## Acceptance criteria and results
-
-| Requirement | Implementation | How to verify |
-|---|---|---|
-| AWS | Terraform provisions ECS Fargate, RDS, API Gateway, Cognito and supporting services | Inspect [infra/](infra/) and [deployment evidence](evidence/deployment.json) |
-| Service overview and roles | Diagram and service decisions below | Follow client → gateway → ALB → API → PostgreSQL → worker |
-| High availability | Two API tasks and two workers across two AZs; private RDS Multi-AZ; bounded dependency waits | Check AZ/task/database fields in `deployment.json`; optional fault tests below |
-| 500 requests/second | Regional constant-arrival k6 test, with the traffic mix stated below | Run the load test; check offered/completed requests, errors, drops and queue age |
-| p99 below 100 ms | Response includes committed acceptance/reservation; matching is asynchronous | Check aggregate and per-route p99, including order submission |
-| Service choices and growth | Alternatives, cost and scaling triggers below | Review the bottleneck-specific growth plan |
-
-**Recorded result, 25 October 2026:** 90,001 measured requests over 180 seconds at 500 offered RPS; **29 ms aggregate p99**, **54 ms order-submission p99**, **zero unexpected responses and zero dropped iterations**. The populated-book workload was 50% book reads, 20% balances, 10% history, 10% placements and 10% recent trades. See [results.md](evidence/results.md) and [raw run](evidence/load-1792905854-mixed.json).
-
-**Interpretation:** a `202` means the order, funds reservation and durable command committed. It does not mean matching completed. The benchmark covers this three-minute, regional, 10%-write profile—not every traffic mix or all-day capacity. Queue progress is checked separately.
-
-## Architecture
+## Architecture and service choices
 
 ```mermaid
 flowchart TD
-  Client[API clients] --> Gateway[API Gateway HTTP API: HTTPS and throttling]
-  Cognito[Cognito: access-token validation] -. authorizes .-> Gateway
+  Client[API clients] --> Gateway[API Gateway: HTTPS and Cognito JWT]
   Gateway --> Link[VPC Link]
-  subgraph VPC[Dedicated VPC: two Availability Zones]
+  subgraph VPC[Private application network: two AZs]
     Link --> ALB[Internal ALB]
-    ALB --> API1[API task: AZ A]
-    ALB --> API2[API task: AZ B]
-    API1 & API2 --> Primary[(PostgreSQL primary)]
-    Worker1[Worker: AZ A] --> Primary
-    Worker2[Worker: AZ B] --> Primary
-    Primary <-->|Synchronous replication| Standby[(Standby in another AZ)]
-    Endpoints[Private endpoints: ECR, S3, logs, secrets]
+    ALB --> API1[API: AZ A]
+    ALB --> API2[API: AZ B]
+    API1 & API2 --> DB[(PostgreSQL primary)]
+    Worker1[Worker: AZ A] --> DB
+    Worker2[Worker: AZ B] --> DB
+    DB <-->|Synchronous replication| Standby[(Standby in another AZ)]
+    Endpoints[Private endpoints: images, secrets and logs]
   end
-  Build[CodeBuild: build and correctness tests] --> ECR[ECR: immutable images]
-  ECR -. task startup .-> API1 & API2 & Worker1 & Worker2
+  Build[CodeBuild: build and tests] --> ECR[ECR images]
+  ECR -. deployment .-> API1 & API2 & Worker1 & Worker2
   Secrets[Secrets Manager] -. startup credentials .-> API1 & API2 & Worker1 & Worker2
-  Logs[CloudWatch: logs, metrics, alarms]
-  VPC -. telemetry .-> Logs
-  State[S3: encrypted versioned Terraform state]
+  VPC -. telemetry .-> Logs[CloudWatch]
+  State[S3: encrypted and versioned Terraform state]
 ```
 
-Application/database subnets have no NAT or internet default route. Security groups restrict VPC Link → ALB → API and application → PostgreSQL. Private endpoints support image pulls, secrets and logging. A separate outbound-only subnet hosts temporary public-HTTPS load tests. Primary/standby AZ roles can swap during failover.
+**ECS Fargate** runs warm API and worker containers across two Availability Zones without managing EC2 hosts. The API and worker share trading code but scale independently. EC2 capacity providers could reduce sustained compute costs; EKS would add cluster operations without a demonstrated need here.
 
-## Service decisions and alternatives
+**API Gateway and Cognito** provide an AWS HTTPS hostname and access-token validation. A VPC Link and internal ALB route requests to healthy API tasks. A direct HTTPS ALB would reduce gateway request fees, but requires a domain, certificate and application JWT verification. Cloud Map could replace the ALB, with different discovery and health behaviour to validate.
 
-| Choice | Why it is used | Alternative considered |
-|---|---|---|
-| ECS Fargate | Warm containers across AZs without managing EC2 hosts | EC2 capacity providers for sustained cost optimization; EKS adds unnecessary cluster operations here |
-| HTTP API + Cognito | AWS-provided HTTPS hostname, JWT checks and route throttling | Direct HTTPS ALB reduces request fees but needs a domain/certificate and application JWT verification |
-| Internal ALB | Health-based task routing and connection draining | Cloud Map private integration removes the ALB but changes discovery/health behaviour |
-| RDS PostgreSQL Multi-AZ | Transactions combine financial changes and durable work; managed standby/backups | Aurora for growth; DynamoDB requires a different transactional/order-book model |
-| PostgreSQL command queue | Order, reservation and PLACE command commit together | SQS/Kafka need an outbox/relay or another explicit dual-write solution |
-| ECR + CodeBuild | Immutable releases, isolated image builds and PostgreSQL-backed tests before publishing | Local Docker builds are supported; CodeBuild avoids workstation-specific build dependencies |
-| Secrets Manager + VPC endpoints | Keep secrets out of code and support private task startup | NAT is simpler for unrestricted egress but adds internet routing and usage costs |
-| CloudWatch + S3 state | Operational visibility; encrypted, versioned, locked infrastructure state | A separate observability stack can be added when its value justifies operating it |
+**RDS PostgreSQL Multi-AZ** holds orders, balances, trades, journal postings and durable commands. Keeping them together avoids a database/queue dual write: an accepted order cannot commit without its work command. SQS or Kafka would need an outbox/relay or an equivalent recovery mechanism. Aurora is a growth option; DynamoDB would require a different transaction and order-book design. The standby provides failover, not read scaling.
 
-Redis is not required initially. Add a rebuildable market-data cache only when measurements justify it. The RDS standby is for failover, **not read scaling**.
+**ECR and CodeBuild** build, test and publish immutable image releases. **Secrets Manager** supplies credentials, **CloudWatch** collects operational signals, and **S3** stores encrypted, versioned Terraform state. Private endpoints support task startup without NAT; NAT is simpler when unrestricted outbound access is needed. Redis is deferred until measured read pressure justifies a rebuildable cache.
 
-## Correctness and failure handling
+Application tasks and the database have no public addresses. Security groups restrict each request hop and database access. A separate outbound-only subnet hosts temporary load generators. The infrastructure is defined in [infra/](infra/).
 
-- **Atomic acceptance:** one transaction creates the order, reserves funds, journals the reservation and inserts its command. Conditional updates and non-negative constraints prevent overspending.
-- **Idempotency:** a unique account/key plus normalized payload hash prevents duplicate reservations. Same key/input returns the original order; different input returns `409`.
-- **Matching:** a transaction-scoped market lock permits one matcher per market. Best price then engine admission sequence determines priority; HTTP receipt order is not book admission order.
-- **Atomic settlement:** maker-price trades, both assets' postings, balances, order residuals and command completion commit together. Buyer price improvement is released immediately. Amounts use fixed-precision SQL numeric and Decimal arithmetic.
-- **Cancellation:** a durable request may lose a race to a fill. The worker releases only the remaining reservation; clients query final status.
-- **Recovery:** transaction failure rolls back work for retry. Pool error handling and timeouts bound database failures. Task liveness is separate from database readiness.
-- **Limits:** database failover can interrupt writes. Multi-AZ is not zero downtime. Backups do not establish restore RTO/RPO without a restore test.
+## How an order moves through the system
 
-## APIs
+1. The gateway validates the access token and overwrites the caller identity header. The API checks input and account ownership.
+2. One transaction creates the order, conditionally reserves available funds, records the journal entry and inserts a command. Only then does the API return `202`.
+3. A worker takes the market lock, admits the order to the book, and matches best price followed by engine admission sequence. Two workers provide recovery capacity, not simultaneous matching of the same market.
+4. Trades, balance changes, journal postings, residual quantities and command completion commit together. Execution uses the maker price and releases buyer price improvement.
+5. Cancellation is another durable command. It releases the remaining reservation if a fill has not already won the race.
 
-Base URL: **https://v7kn37xo96.execute-api.ap-southeast-1.amazonaws.com**
+Amounts use fixed-precision arithmetic. Conditional balance updates prevent overspending. Account-scoped idempotency keys prevent retries from reserving funds twice; conflicting input under the same key returns `409`.
 
-| Method/path | Access | Result |
-|---|---|---|
-| `GET /health/live` | Public | Process health |
-| `GET /health/ready` | Public | Database readiness |
-| `GET /v1/markets` | Public | Market, increments and limits |
-| `GET /v1/markets/BTC-USDT/orderbook?depth=20` | Public | Aggregated levels; depth 1–100 |
-| `GET /v1/markets/BTC-USDT/trades` | Public | Latest 50 trades |
-| `GET /v1/balances` | Access token | Caller-owned available/reserved funds |
-| `POST /v1/orders` | Access token | Durable submission; requires `Idempotency-Key`; returns `202` |
-| `GET /v1/orders?cursor=...` | Access token | Owned history, 50 rows/page and `next_cursor` |
-| `GET /v1/orders/{id}` | Access token | Owned state and up to 50 recent fills |
-| `DELETE /v1/orders/{id}` | Access token | Durable cancellation request; returns `202` |
+If a task fails, ECS replaces it. If a worker transaction fails, it rolls back and its command remains recoverable. Database failover can interrupt writes; connection handling and timeouts provide bounded failures and retries. Process liveness is separate from database readiness to avoid restarting healthy applications during a database outage.
 
-Errors: `400` invalid input, `401/403` authentication/access failure, `404` absent or other-account order, `409` conflicting key, `422` insufficient funds, `503` temporary dependency failure. Retry uncertain submissions with the **same key and body**.
+## APIs and verification
 
-### Test the live APIs — PowerShell
+The API exposes public market/order-book/trade reads and authenticated balances, order submission, history, status and cancellation. Submissions require an `Idempotency-Key`; clients reuse that key after an uncertain response.
 
-Demo credentials are supplied privately. The authentication call below needs no AWS IAM credentials. Do not print or commit the resulting token. Run from `src/problem1`:
+Demo: **https://v7kn37xo96.execute-api.ap-southeast-1.amazonaws.com/v1/markets**
 
-```powershell
-$config = Get-Content ./evidence/public-config.json -Raw | ConvertFrom-Json
-$base = $config.api_url
-Invoke-RestMethod "$base/v1/markets"
-Invoke-RestMethod "$base/v1/markets/BTC-USDT/orderbook?depth=20"
+The recorded Singapore test completed **90,001 requests over 180 measured seconds at 500 offered RPS**, with **29 ms aggregate p99**, **54 ms submission p99**, zero unexpected responses and zero dropped iterations. The mix was 50% book reads, 20% balances, 10% history, 10% submissions and 10% recent trades, against a populated book.
 
-$credential = Get-Credential -Message 'Enter the supplied demo username and password'
-$authBody = @{
-  AuthFlow = 'USER_PASSWORD_AUTH'
-  ClientId = $config.client_id
-  AuthParameters = @{
-    USERNAME = $credential.UserName
-    PASSWORD = $credential.GetNetworkCredential().Password
-  }
-} | ConvertTo-Json -Depth 4
-$auth = Invoke-RestMethod -Method Post `
-  -Uri "https://cognito-idp.$($config.region).amazonaws.com/" `
-  -ContentType 'application/x-amz-json-1.1' `
-  -Headers @{'X-Amz-Target'='AWSCognitoIdentityProviderService.InitiateAuth'} `
-  -Body $authBody
-$authBody = $null
-$headers = @{Authorization="Bearer $($auth.AuthenticationResult.AccessToken)"}
-Invoke-RestMethod "$base/v1/balances" -Headers $headers
+All **11 correctness tests** and **10 live authentication/trading checks** passed. The post-run audit reconciled **5,001 trades**, with no financial invariant violations or pending commands. Deployment records confirm two API tasks, two workers and a private Multi-AZ database across two AZs. Fault-injection and restore tests were not repeated in this sandbox.
 
-# Non-crossing demo buy: reserve 1 USDT without intentionally matching liquidity.
-$headers['Idempotency-Key'] = [guid]::NewGuid().ToString()
-$body = '{"market":"BTC-USDT","side":"BUY","price":"1.00","quantity":"1.00"}'
-$order = Invoke-RestMethod -Method Post -Uri "$base/v1/orders" `
-  -Headers $headers -ContentType 'application/json' -Body $body
-$retry = Invoke-RestMethod -Method Post -Uri "$base/v1/orders" `
-  -Headers $headers -ContentType 'application/json' -Body $body
-if ($retry.id -ne $order.id) { throw 'Idempotency check failed' }
-Invoke-RestMethod "$base/v1/orders/$($order.id)" -Headers $headers
-Invoke-RestMethod -Method Delete -Uri "$base/v1/orders/$($order.id)" -Headers $headers
+Results and their limits are in [evidence/results.md](evidence/results.md). The [testing guide](TESTING.md) contains the API reference, login/order/retry/cancellation examples and acceptance-test commands. Demo credentials are supplied privately.
 
-for ($i=0; $i -lt 20; $i++) {
-  $state = Invoke-RestMethod "$base/v1/orders/$($order.id)" -Headers $headers
-  if ($state.status -in @('CANCELLED','FILLED')) { break }
-  Start-Sleep -Milliseconds 500
-}
-$state
-Invoke-RestMethod "$base/v1/balances" -Headers $headers
-```
+## Scaling and cost
 
-Expected: the retry has the same ID; cancellation eventually reaches a terminal state. Funds return for an unfilled cancellation; FILLED means a trade won the race. To test matching and cross-account rejection, use the automated functional check with two supplied accounts.
+Scale API tasks when HTTP CPU or concurrency becomes the bottleneck, while keeping database pools bounded. Add a market-data cache or history read replicas for read pressure. When execution lag grows, improve matching/persistence and partition independent markets; adding API replicas does not solve a single hot order book. A previous environment's 80%-write test failed, so the demonstrated capacity remains the stated 10%-write profile.
 
-## Acceptance test guide
+The base Fargate, Multi-AZ database, endpoints and ALB estimate is **about USD 310/month**, before storage, telemetry, secrets and usage. Constant 500 RPS for 30 days adds approximately **USD 1,500 in gateway request fees** at the recorded tiers. That makes direct ALB ingress worth reassessing at sustained volume. [Pricing evidence](evidence/pricing.json).
 
-**Local correctness:** use a disposable PostgreSQL 18 database `trading` on loopback port 55432 with password `local-test-only`. Do not reuse a shared database: the suite truncates its fixtures and injects a failing SQL trigger. From `src/problem1/app`:
+## Deliberately left out
 
-```powershell
-$env:DB_HOST='127.0.0.1'; $env:DB_PORT='55432'
-$env:DB_USER='postgres'; $env:DB_PASSWORD='local-test-only'
-$env:DB_NAME='trading'; $env:DB_SSL='false'
-npm.cmd ci --registry=https://registry.npmjs.org
-npm.cmd test
-```
+- Custody, deposits, withdrawals, derivatives, external price feeds and a frontend.
+- Cross-region continuity, tested restore RTO/RPO, all-day capacity and surviving-AZ load tests.
+- Production database privilege separation, internal-hop TLS, automatic credential refresh and alarm notification destinations.
 
-Expected: **11 tests pass**, covering overlap, replay, overspending, price-time matching, exact amounts, rollback/retry, cancellation, ownership and pagination.
-
-**Live/operator checks:** require authorized deployment-account access and initialized backend configuration. Helpers are pinned to this sandbox/profile; another account requires deliberate configuration changes. These commands write demo data, run temporary paid tasks or send traffic:
-
-```powershell
-aws sso login --profile AWSAdministratorAccess-730335245469
-python scripts/manage.py bootstrap             # Configure encrypted/versioned state backend
-.\scripts\verify.ps1                          # 10 live checks, then financial audit
-python scripts/manage.py admin seed-book       # Idempotent 400-order fixture
-python scripts/manage.py load 500 180s mixed
-python scripts/manage.py admin audit
-python scripts/manage.py report
-```
-
-Pass criteria: expected HTTP statuses; identical retry order ID; matching/cancellation complete; aggregate and each exercised route p99 <100 ms; unexpected response rate <0.1%; **zero dropped iterations**; measured count within five requests of 90,000 at the timing boundary; financial violation counts zero and queue drained. Recorded unexpected responses were zero. Inspect queue age during the run; a fast 202 with growing backlog is not sustainable capacity.
-
-**HA checks:** inspect [deployment.json](evidence/deployment.json) for AZ distribution/Multi-AZ/private settings. Optional `python scripts/manage.py recovery task` and `recovery database` stop a task or force database failover; run only in an approved isolated test window. These fault tests were **not repeated in the current sandbox**. Configuration evidence is not fault-injection or restore evidence.
-
-## Scaling, cost and remaining work
-
-- Scale API tasks for measured HTTP CPU/concurrency; retain bounded pool sizes. Two workers provide recovery, not parallel execution of the same market.
-- Add Redis/read replicas for measured market/history read pressure; keep balance-sensitive reads authoritative.
-- Improve matching/persistence when command age grows. Partition independent markets; one hot market still needs its own capacity strategy. A previous sandbox's 80%-write stress profile failed, so no arbitrary-mix 500-RPS claim is made.
-- Use a non-burstable database when sustained demand/credit behaviour warrants it. Test longer runs and surviving-AZ headroom before promising continuous capacity.
-- Base Fargate/RDS/endpoints/ALB estimate: **about USD 310/month**, before storage, telemetry, secrets and usage. Constant 500 RPS for 30 days adds about **USD 1,500 in HTTP API request fees** at recorded tiers; a direct custom-domain ALB is worth reassessing at that volume. See [pricing.json](evidence/pricing.json).
-- Production gaps: bootstrap database identity, internal HTTP hops, rotation/redeployment automation, alarm notification destinations and tested restore. Problem 5 demonstrates selected controls separately; it does not modify this deployment.
-
-## Deploy and remove
-
-For a **new stack only**, run `.\scripts\deploy.ps1 -Initial -ImageTag <new-immutable-tag>` from this folder. Review the account/profile, cost and plan first. `-Initial` scales services to zero; do not use it on an existing live stack. For schema-changing releases, register and run the migration using the intended new image before service rollout; the current wrapper can otherwise select the existing worker definition. ECR rejects reused tags.
-
-To remove this stack, inspect `python scripts/manage.py terraform plan -destroy`, then run an approved `python scripts/manage.py terraform destroy`. A final RDS snapshot remains billable; remove it deliberately if unnecessary. Delete retained RDS log groups and the versioned state/source bucket only after stack deletion, including bucket versions/delete markers. Secrets use a seven-day recovery window. Never delete state first.
+Multi-AZ does not mean zero downtime, and backups do not prove restore time. Problem 5 demonstrates selected security controls separately; it does not modify this deployment. Deployment prerequisites, release limitations and cleanup are in [TESTING.md](TESTING.md#deployment-and-cleanup).
