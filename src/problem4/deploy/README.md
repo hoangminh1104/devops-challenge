@@ -4,7 +4,7 @@
 
 Prepare Linux amd64 EC2 with Docker Engine, Compose **v2.30+** (required for `env_file: format: raw`), AWS CLI v2 supporting S3 `PutObject --if-none-match`, SSM Agent, Bash, GNU tar/coreutils, util-linux `flock`. Node and npm are **not** required on the host. Allow SSM/S3 HTTPS through VPC endpoints or egress; no inbound SSH is needed. Give the instance `AmazonSSMManagedInstanceCore` plus [permissions-instance.json](permissions-instance.json). Templates assume SSE-S3; KMS needs additional grants.
 
-The existing target is private Amazon Linux 2023 x86_64 EC2 `i-06a3a1ca8845a1087`, account `516418317632`, `ap-southeast-1`. SSM execution and Docker Engine startup were verified separately on 2026-10-24. Docker installed through Amazon Linux's S3 repositories without adding internet egress. Compose and application/dependency images remain to be transferred. The instance role currently has SSM permissions only; add scoped artifact read permission before deployment.
+The recorded demonstration uses private Amazon Linux 2023 x86_64 EC2 `i-008640a3549517bd1`, account `730335245469`, region `ap-southeast-1`. Docker, Compose, dependencies and the application were deployed and verified. See [LIVE.md](LIVE.md) for resources and evidence. The instructions below also describe prerequisites for a fresh environment.
 
 Install [api.env.example](api.env.example) as `/etc/ship-api.env`, root:root, mode 0600; replace both password values with the same secret. Keep `DB_HOST=postgres`, `REDIS_HOST=redis`. `DB_USER`/`DB_NAME` default to `postgres`. Don't set `RELEASE_SHA` in this file: identity is baked into the image. Configure `CORS_ORIGIN` to the exact HTTPS SPA origin, with no path/trailing slash. This is a browser origin allowlist, not authentication. Runtime secrets never enter source, image or release archive.
 
@@ -26,7 +26,7 @@ docker compose -p ship-api-data -f /opt/ship-api/bootstrap/compose.dependencies.
 
 This creates network `ship-api-data` and volume `ship-api-data_postgres-data`. PostgreSQL/Redis publish no host ports. Never run `down -v` on this project. Existing database password changes require deliberate database-side rotation; changing `POSTGRES_PASSWORD` does not rewrite an initialized volume. Redis is a disposable cache; only PostgreSQL durability is promised.
 
-On a host without internet, preload **matching amd64** `postgres:16.13-alpine` and `redis:7.4.8-alpine` images from an authorized connected build machine using `docker save ... | gzip`, upload that bootstrap bundle to S3, and `gzip -dc ... | docker load` on EC2. Docker/Compose/CLI installation packages also need an approved offline transfer or egress. Bootstrap bundles are separate from app releases. The instance policy intentionally reads only `backend/*`; parent must either use a separately controlled bootstrap transfer or explicitly grant the chosen bootstrap object. Do not grant the API release role package-install or dependency-reset behavior.
+The recorded host uses existing NAT egress to download dependencies. On an isolated host, preload matching amd64 dependency images and installation packages through an authorized bootstrap transfer. Bootstrap bundles are separate from app releases; the instance policy template reads only `backend/*`, so grant any bootstrap object separately. Do not make application releases install packages or reset dependencies.
 
 Production API Compose is **included in every backend artifact**; no preinstalled API Compose file is required. It joins the preexisting network, loads `/etc/ship-api.env` and defaults to localhost:3000. Put an HTTPS reverse proxy or load balancer in front. A private-only instance cannot serve a public S3 browser UI without reachable API ingress. An HTTPS SPA cannot call a plain HTTP API (mixed content); CORS alone does not fix routing/TLS.
 
@@ -57,7 +57,7 @@ Normal runner entry point, after setting AWS region/credentials and `ARTIFACT_BU
 bash src/problem4/scripts/release-backend.sh release "$RELEASE_SHA" backend.tar.gz
 ```
 
-It creates `s3://ARTIFACT_BUCKET/backend/SHA.tar.gz`, sends trusted checkout deployment code through SSM and polls terminal status. Recovery downloads the retained object first and sends its digest. On host, after downloading a verified artifact, parent may invoke the identical helper directly:
+It creates `s3://ARTIFACT_BUCKET/backend/SHA.tar.gz`, sends trusted checkout deployment code through SSM and polls terminal status. Recovery downloads the retained object first and sends its digest. An authorized operator may invoke the identical helper directly on the host after downloading the artifact:
 
 ```bash
 ARCHIVE_SHA256=EXPECTED_64_HEX_DIGEST bash deploy-backend.sh /private/path/backend.tar.gz FULL_40_CHARACTER_SHA
@@ -69,7 +69,7 @@ Host defaults (also in `deploy.env.example`): `APP_ROOT=/opt/ship-api`, `API_PRO
 
 ## GitHub and AWS setup
 
-Create environments `production-backend` and `production-frontend` with required reviewers and **main-only deployment branch rules**. OIDC environment subjects omit branch, so workflow guards alone aren't sufficient. Protect main and workflow/script changes. Substitute all placeholders in `trust-*.json` and `permissions-*.json`; use separate backend/frontend OIDC roles with audience `sts.amazonaws.com` and exact repository/environment subjects. SSM SendCommand is scoped to one instance and AWS-RunShellScript; GetCommandInvocation needs `Resource: "*"`. SSM runs as root and grants effective administrative control on that host.
+Create environments `production-backend` and `production-frontend` with **main-only deployment branch rules**. Add required reviewers if supported by the GitHub plan; they are unavailable in the recorded deployment. OIDC environment subjects omit branch, so workflow guards alone aren't sufficient. Protect main and workflow/script changes. Substitute all placeholders in `trust-*.json` and `permissions-*.json`; use separate backend/frontend OIDC roles with audience `sts.amazonaws.com` and exact repository/environment subjects. SSM SendCommand is scoped to one instance and AWS-RunShellScript; GetCommandInvocation needs `Resource: "*"`. SSM runs as root and grants effective administrative control on that host.
 
 Create private versioned artifact bucket, public access block, SSE-S3, TLS-only access and retention adequate for recovery. Keep archive writes tightly scoped. Both release roles have conditional publication and readback/recovery permission (`GetObject` and prefix-scoped `ListBucket` in the supplied policies); instance reads only backend archives. No application deploy role deletes S3 objects.
 
@@ -88,6 +88,22 @@ GitHub variables:
 
 ## Local verification details
 
-Run [the commands in SOLUTION](../SOLUTION.md#verification-and-current-evidence). Docker integration uses unique Compose project/image names and ports 18304/18305; override `TEST_API_PORT`/`TEST_WEB_PORT` if occupied. Its cleanup removes only that project's containers and test volume; images remain for inspection/reuse. `KEEP_DOCKER_TEST=1` retains containers/temp metadata for diagnosis. All generated secret/env files are outside the checkout.
+From `src/problem4`, with Linux Bash, Node 24 and Docker available:
+
+```bash
+npm ci --prefix frontend
+npm test --prefix frontend
+RELEASE_SHA=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb API_BASE_URL=https://api.example.com npm run build --prefix frontend
+bash tests/releases.sh
+bash tests/host-contract.sh
+bash tests/docker.sh
+shellcheck scripts/*.sh tests/*.sh tests/doubles/* tests/host-double/*
+actionlint ../../.github/workflows/problem4-backend.yml ../../.github/workflows/problem4-frontend.yml
+bash tests/static.sh
+```
+
+These checks cover frontend behaviour/build output, release/recovery contracts, host orchestration, actual Docker integration and static configuration. Recorded deployment runs are linked in [SOLUTION.md](../SOLUTION.md#verification).
+
+Docker integration uses unique Compose project/image names and ports 18304/18305; override `TEST_API_PORT`/`TEST_WEB_PORT` if occupied. Its cleanup removes only that project's containers and test volume; images remain for inspection/reuse. `KEEP_DOCKER_TEST=1` retains containers/temp metadata for diagnosis. All generated secret/env files are outside the checkout.
 
 On Windows, invoke Linux scripts through WSL with Linux Node 24 on PATH; Docker CLI must address the same Linux engine as native Docker Desktop. Tests use no host bind mounts, avoiding Linux/Windows bind-path ambiguity. Run local `docker compose` from native PowerShell or WSL. No global Docker prune/reset commands are used.

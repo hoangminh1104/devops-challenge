@@ -1,21 +1,22 @@
 # Problem 3 — Investigation Report
 
-**TL;DR:** The API was down because nginx pointed at the wrong port. It was unstable because it crashed or hung on any Postgres or Redis hiccup. I fixed 5 issues, each verified by re-running the failure, and added a health endpoint for monitoring.
+The first problem was that nginx was forwarding requests to the wrong API port, so users couldn't reach the API at all. After fixing that, I found that Postgres and Redis failures could also crash the API or leave requests waiting. I fixed five issues, repeated the failure tests to check the changes, and added a health endpoint to make these problems easier to spot.
 
-| # | Problem | Before → After |
-|---|---|---|
-| 1 | `/` downloads as a file | `octet-stream` → `text/plain` |
-| 2 | nginx → wrong API port | 502 → 200 |
-| 3 | API crashes on Postgres restart | `Exited (1)` → stays up |
-| 4 | No DB timeouts | 504 @ 60s → 500 @ 2s |
-| 5 | Request blocked by Redis | 500 @ 57s → 200 @ 0.03s |
-| 6 | No way to see dependency health | → `/api/health`: ok / degraded / down |
+| # | Problem | Before | After |
+|---|---|---|---|
+| 1 | Homepage downloads as a file | `application/octet-stream` | `text/plain` |
+| 2 | nginx uses the wrong API port | 502 response | 200 response |
+| 3 | API crashes when Postgres restarts | API exits with code 1 | API stays running |
+| 4 | Database requests have no timeout | 504 after 60 seconds | 500 after 2 seconds for a connection timeout, or 5 seconds for a query timeout |
+| 5 | Redis failure blocks the request | 500 after about 57 seconds | 200 after 0.03 seconds |
+| 6 | No dependency health endpoint | No single place to check | `/api/health` reports `ok`, `degraded`, or `down` |
 
 ---
 
 ## 1. Homepage downloads as a file
-When I tried to go to http://localhost:8080, it would download the app..
-Content-type thingy here
+
+When I opened http://localhost:8080, the browser downloaded the response instead of displaying the welcome message. I checked the response headers and found that it was being served as `application/octet-stream`.
+
 ```text
 > curl.exe -i http://localhost:8080/
 HTTP/1.1 200 OK
@@ -25,8 +26,8 @@ Content-Type: application/octet-stream
 Welcome to the platform
 ```
 
-→ `return` has no file extension, so nginx falls back to `default_type` (octet-stream).
-Fix by adding Content-Type
+The response comes directly from nginx's `return` directive rather than a file with an extension. nginx was using its default content type, `application/octet-stream`, so I set the type to `text/plain` for this location.
+
 ```diff
  location = / {
 +    default_type text/plain;
@@ -35,6 +36,8 @@ Fix by adding Content-Type
 ```
 
 ## 2. API returns 502
+
+The API endpoint returned 502 even though all four containers were running. I checked nginx's logs to see why it couldn't reach the API.
 
 ```text
 > curl.exe -i http://localhost:8080/api/users
@@ -48,7 +51,7 @@ problem3-postgres-1   Up About an hour
 problem3-redis-1      Up About an hour
 ```
 
-→ The 502 comes from nginx
+The response came from nginx. Its logs showed a refused connection to the upstream API on port 3001:
 
 ```text
 > docker compose logs --tail=50 nginx
@@ -61,9 +64,7 @@ upstream: "http://172.23.0.4:3001/api/users"
 app.listen(3000, () => console.log("API running on 3000"));
 ```
 
-→ nginx targets 3001; the app is on 3000.
-
-fix: adjust api port from 3001 to 3000 because the app is listening to port 3000
+The nginx configuration used port 3001, but the application was listening on port 3000. I updated `proxy_pass` to match the application.
 
 ```diff
  location /api/ {
@@ -81,19 +82,15 @@ HTTP/1.1 200 OK
 {"ok":true,"time":{"now":"2026-10-21T07:30:02.420Z"}}
 ```
 
-→ Fixed.
-I not sure whether this bug is intended, because the exercise itself says "Users are reporting that the API is unreliable and sometimes inaccessible"
-I assume that users are able to use the api. And it acts up sometimes only.
+After checking and reloading the nginx configuration, the same request returned 200.
+
+I'm not sure whether the port mismatch was intentional. The exercise says, "Users are reporting that the API is unreliable and sometimes inaccessible," which suggests it works at least some of the time. The port mismatch would prevent all requests from reaching the API, so I kept investigating the intermittent failures.
+
 ## 3. API dies when Postgres restarts
 
-```text
-browser ──► nginx :8080 ──► api :3000 ──┬──► postgres :5432   every request (SELECT NOW())
-                                        └──► redis :6379      side write (last_call)
-```
+Requests reach nginx on port 8080, which forwards them to the API on port 3000. Each `/api/users` request runs `SELECT NOW()` against Postgres on port 5432 and writes a `last_call` timestamp to Redis on port 6379.
 
-→ "Sometimes" is still unexplained. I'll dig into each component
-
-Start with api → postgres:
+I started with the Postgres connection handling:
 
 ```js
 const pool = new Pool({
@@ -103,7 +100,7 @@ const pool = new Pool({
   database: "postgres",
   port: 5432,
 });
-// no pool.on("error")  <- errors on idle connections have nowhere to go
+// No pool.on("error") handler for errors on idle connections.
 
 app.get("/api/users", async (req, res) => {
   try {
@@ -120,9 +117,9 @@ app.get("/api/users", async (req, res) => {
 });
 ```
 
-→ Request errors are caught by `try/catch`, but errors on idle connections *between* requests aren't. Nothing listens on the pool.
-→ Guess: DB drops an idle connection (restart, failover, maintenance) → pool emits `error` → no listener → Node exits.
-→ Test: one request (leaves an idle connection for ~10s), then restart the DB.
+The `try/catch` handles errors during a request, but an idle connection can fail between requests too. There was no error listener on the pool to handle that.
+
+I suspected that a Postgres restart would close an idle connection, causing the pool to emit an unhandled `error` event and stop the Node process. To test this, I made a request to leave a connection idle in the pool, then restarted Postgres before the connection's roughly 10-second idle timeout.
 
 ```text
 > curl.exe -s http://localhost:8080/api/users; docker compose restart postgres
@@ -132,7 +129,7 @@ app.get("/api/users", async (req, res) => {
 > docker compose ps
 problem3-nginx-1      Up 2 hours
 problem3-postgres-1   Up 20 seconds
-problem3-redis-1      Up 2 hours          <- api missing
+problem3-redis-1      Up 2 hours
 
 > curl.exe -i http://localhost:8080/api/users
 HTTP/1.1 502 Bad Gateway
@@ -144,7 +141,9 @@ problem3-api-1   Exited (1) 3 minutes ago
     at Client.idleListener (/app/node_modules/pg-pool/index.js:62:10)
 ```
 
-→ Confirmed. DB came back, API stayed dead (no restart policy). Needs traffic in the last ~10s, hence *sometimes*.
+Postgres came back, but the API was missing from the running containers. It had exited with code 1, and the logs showed the unhandled pool error. There was also no restart policy to bring it back. This explains one intermittent failure: a database restart could stop the API if a recent request had left an idle connection in the pool.
+
+I added a pool error handler and a restart policy for the API container:
 
 ```diff
 +pool.on("error", (err) => {
@@ -166,9 +165,11 @@ api-1  | Postgres idle client error: terminating connection due to administrator
 HTTP/1.1 200 OK
 ```
 
-→ Error is now logged, not fatal. The restart policy is only a safety net, and restarts are alerted on.
+When I repeated the test, the API logged the idle connection error and stayed running. Once Postgres was available again, requests returned 200. The restart policy provides a fallback if the process exits for another reason. I would alert on unexpected container restarts; alert delivery is not configured in this local stack.
 
-## 4. 504 Timeout when DB hangs.
+## 4. Requests time out when Postgres stops responding
+
+Next, I checked what happened if Postgres stayed connected but stopped responding. The API had no connection or query timeouts, and a failed query could skip `db.release()`.
 
 ```js
 const pool = new Pool({
@@ -177,15 +178,15 @@ const pool = new Pool({
   password: "postgres",
   database: "postgres",
   port: 5432,
-  // no connectionTimeoutMillis  <- waits forever for a connection
-  // no query_timeout            <- waits forever for a result
+  // No connectionTimeoutMillis to limit the connection wait.
+  // No query_timeout to limit the query wait.
 });
 
 app.get("/api/users", async (req, res) => {
   try {
     const db = await pool.connect();                // hang #1: DB never finishes the handshake
     const result = await db.query("SELECT NOW()");  // hang #2: DB never answers the query
-    db.release();                                   // skipped if the query throws -> connection leaked
+    db.release();                                   // skipped if the query throws, leaving the connection checked out
     ...
   } catch (err) {
     ...
@@ -193,15 +194,16 @@ app.get("/api/users", async (req, res) => {
 });
 ```
 
-→ No timeout rules. Test by curl to localhost:8080 when postgres is paused
+I paused Postgres and sent a request through nginx to see how long it would wait.
 
 ```text
 > docker compose pause postgres; curl.exe -s -o NUL -w "%{http_code} after %{time_total}s\n" http://localhost:8080/api/users; docker compose unpause postgres
 504 after 60.002646s
 ```
 
-→ Confirmed. 60s is nginx's default `proxy_read_timeout`; the API never gave up by itself.
-→ Fix: add connection timeout, query timeout, use pool.query() instead of db.query because pool.query() handles the release itself.
+The request returned 504 after 60 seconds, matching nginx's default `proxy_read_timeout`. The API hadn't timed out the database operation itself.
+
+I added a 2-second connection timeout and a 5-second query timeout. I also switched to `pool.query()`, which handles releasing the connection without a separate `db.release()` call.
 
 ```diff
  const pool = new Pool({
@@ -227,17 +229,18 @@ app.get("/api/users", async (req, res) => {
 {"ok":true,...}  200
 ```
 
-→ recovers by itself.
+With the changes in place, a new connection attempt failed after about 2 seconds, and a query on a reused connection failed after about 5 seconds. After I unpaused Postgres, the next request succeeded without restarting the API.
 
 ## 5. What if Redis is down?
 
+I then stopped Redis and sent another request to see whether the API could still respond.
 
 ```text
 > docker compose stop redis; curl.exe -s -w " %{http_code} after %{time_total}s\n" http://localhost:8080/api/users; docker compose start redis
 {"ok":false,"error":"Reached the max retries per request limit (which is 20)..."} 500 after 56.58s
 ```
 
-→ got 500 response after 57s
+The request eventually returned 500, but only after waiting almost 57 seconds. I checked where Redis was used in the request handler:
 
 ```text
 > cat .\api\src\index.js | sls "redis"
@@ -247,7 +250,9 @@ const redis = new Redis({ host: process.env.REDIS_HOST, port: 6379 });
     await redis.set("last_call", Date.now());
 ```
 
-→ No handling for Redis failing: the response waits on `redis.set`, so one Redis error fails the whole request (after 20 default retries). Add it:
+The handler waited for `redis.set()` before sending the response. With Redis unavailable, the write went through the default 20 retries and then failed the entire request.
+
+Since this write only records the last-call timestamp, I made it a background operation and logged any failure. I also reduced `maxRetriesPerRequest` to 1 and added a Redis error listener.
 
 ```diff
 -const redis = new Redis({ host: process.env.REDIS_HOST, port: 6379 });
@@ -266,9 +271,13 @@ const redis = new Redis({ host: process.env.REDIS_HOST, port: 6379 });
 api-1  | Redis write failed: Reached the max retries per request limit (which is 1)...
 ```
 
+Repeating the test with Redis stopped returned 200 in 0.03 seconds. The failed timestamp write was logged, but it no longer blocked the response.
+
 ## 6. Monitoring
 
-→ expose Postgres down, Redis down, long-running queries as api
+I added `/api/health` so monitoring can check Postgres, Redis, and queries running for more than 5 seconds. The checks run in parallel, each with a 1-second timeout so an unresponsive dependency doesn't leave the health request waiting.
+
+This is a simplified version of the handler:
 
 ```js
 app.get("/api/health", async (req, res) => {
@@ -292,29 +301,31 @@ app.get("/api/health", async (req, res) => {
 
 | Status | When | HTTP |
 |---|---|---|
-| `ok` | All fine | 200 |
-| `degraded` | Redis down or slow queries (users still served) | 200 |
-| `down` | Postgres down | 503 |
+| `ok` | Both dependencies respond and no slow queries are found | 200 |
+| `degraded` | Redis is unavailable or slow queries are found; the API can still serve requests | 200 |
+| `down` | Postgres is unavailable | 503 |
 
-All up:
+With both dependencies available, the endpoint reported `ok`:
 
 ```text
 > curl.exe http://localhost:8080/api/health
 {"status":"ok","postgres":{"ok":true,"ms":1},"redis":{"ok":true,"ms":1},"slowQueries":0}
 ```
 
-Slow query (terminal 2 runs a 12s query):
+To check slow-query detection, I ran a 12-second query in a second terminal:
 
 ```text
 > docker compose exec postgres psql -U postgres -c "SELECT pg_sleep(12)"
 ```
+
+While that query had been running for more than 5 seconds, the health endpoint reported `degraded` and counted one slow query:
 
 ```text
 > curl.exe http://localhost:8080/api/health
 {"status":"degraded","postgres":{"ok":true,"ms":28},"redis":{"ok":true,"ms":1},"slowQueries":1}
 ```
 
-Redis down:
+With Redis stopped, the endpoint reported `degraded` and showed that the Redis check had timed out:
 
 ```text
 > docker compose stop redis
@@ -323,7 +334,7 @@ Redis down:
 > docker compose start redis
 ```
 
-Postgres down:
+With Postgres paused, the endpoint reported `down`. As shown in the handler above, that status returns HTTP 503:
 
 ```text
 > docker compose pause postgres
@@ -331,3 +342,9 @@ Postgres down:
 {"status":"down","postgres":{"ok":false,"error":"timeout"},"redis":{"ok":true,"ms":5},"slowQueries":null}
 > docker compose unpause postgres
 ```
+
+## Monitoring and prevention in production
+
+I would alert on failed external API checks, increased 5xx/latency, unexpected restarts, database connection pressure and sustained dependency failures. The health endpoint provides a signal; a monitoring service and notification destination still need configuration.
+
+Before release, I would repeat the dependency restart/outage checks in an isolated environment, keep connection/query timeouts bounded, and verify startup readiness. Production also needs managed credentials, database backup/restore checks and reviewed network exposure. These are recommendations, not controls demonstrated by this local investigation.

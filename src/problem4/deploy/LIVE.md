@@ -1,48 +1,41 @@
-# Live end-to-end test environment
+# Live deployment and verification
 
-Verified 2026-10-24. AWS account `516418317632`, region `ap-southeast-1`, CLI profile `AWSAdministratorAccess-516418317632`.
+Demo: **https://d1v3sagma6ldre.cloudfront.net**
 
-Open **https://d34e7lkj3dq7h3.cloudfront.net**. The static UI calls `/api/health` and `/api/users` on the same HTTPS origin. CloudFront serves static objects from private S3/OAC and forwards `/api/*` uncached to the ALB. No custom domain or browser CORS configuration is needed. The ALB origin hop is HTTP; this lab does not claim end-to-end origin TLS. ALB ingress allows the CloudFront origin-facing managed prefix list only, and its listener requires a generated origin header; other requests receive 403. That header is kept out of the repository.
+Recorded verification: 2026-10-24. Account `730335245469`, region `ap-southeast-1`, CLI profile `AWSAdministratorAccess-730335245469`. These identifiers describe the recorded deployment, not a guarantee that resources remain available indefinitely.
 
-## Resources to watch
+## Resources
 
-| AWS console | Resource |
+| Resource | Name / ID |
 | --- | --- |
-| CloudFront | `E3NTN25OYYWKBB`, comment `dom7hc-deploy-web` |
-| S3 static site | `dom7hc-deploy-web-516418317632-ap-southeast-1` |
-| S3 release artifacts | `dom7hc-deploy-artifacts-516418317632-ap-southeast-1` |
-| EC2 API | `dom7hc-deploy-api`, `i-06a3a1ca8845a1087`, private `10.77.0.44` |
+| Private EC2 | `dom7hc-deploy-api`, `i-008640a3549517bd1`, `10.0.3.32`, no public IP |
+| Instance security group | `sg-00a01ec480d135bd9` |
 | ALB | `dom7hc-deploy-api-alb` |
+| ALB security group | `sg-0292c77b3d0fee73a` |
 | Target group | `dom7hc-deploy-api-tg` |
-| NAT instance | `dom7hc-deploy-nat`, `i-053d94abf8afe7e0b`, t3.small |
-| VPC | `vpc-0d06fba9047838687` |
-| Private subnet | `subnet-0e31f973f78c6d580` |
-| Public subnets | `subnet-0745881cb6fa7e2bd`, `subnet-0720d7579008e09bb` |
-| Public route table | `rtb-0d7620e8842a807bb` |
-| Internet gateway | `igw-0d37756c5987fb51c` |
-| ALB security group | `sg-0b5c059834db83720` |
-| NAT security group | `sg-0341de45a7cc1bfad` |
+| CloudFront | `E2O9Y4TM36JCJD` |
+| Origin access control | `E14QQN2LYVQ5LF` |
+| Custom cache policy | `90177b56-5124-4f81-a3a9-dbe929983307` |
+| Site bucket | `dom7hc-deploy-web-730335245469-ap-southeast-1` |
+| Artifact bucket | `dom7hc-deploy-artifacts-730335245469-ap-southeast-1` |
+| Instance role / profile | `dom7hc-deploy-ssm-role` / `dom7hc-deploy-instance-profile` |
+| GitHub roles | `dom7hc-deploy-github-backend`, `dom7hc-deploy-github-frontend` |
 
-The private API has no public IP. It now has outbound HTTPS via the dedicated NAT instance, permitting Docker image/package downloads. NAT Gateway provisioning failed because the account Elastic IP quota was full; no existing addresses were altered. NAT initially exhausted memory at t3.nano during package installation and was resized to t3.small. IP forwarding, MASQUERADE and disabled source/destination checking are configured. This is a single-host lab egress dependency, not HA production networking.
+CloudFront serves private S3 objects through OAC and forwards `/api/*` uncached to the ALB. The ALB accepts CloudFront origin-facing addresses and requires a secret origin header. EC2 port 3000 accepts only the ALB security group. Browser traffic uses HTTPS; the CloudFront-to-ALB hop uses HTTP.
 
-## What actually passed
+The deployment reuses existing VPC `vpc-0740b5d72e77fd95d`, private subnet `subnet-0ba473a4e68da3914`, public subnets `subnet-0737b59145b2d295e` and `subnet-0900e0f4a620b8360`, and NAT Gateway `nat-0199882a7b068a387`. No shared routes were changed. SSM and image downloads use the existing NAT egress.
 
-- Real `tests/docker.sh` on private EC2, SSM command `457c36c0-6c9d-41ce-8df7-14f04727f75b`: direct/proxied HTTP, nonroot API, CORS, PostgreSQL/Redis outages, exact-image packaging/activation, failed-image recovery, unchanged dependency containers, persisted SQL state across API rollback and database recreation, host lock, graceful shutdown. Exit 0. Log: `/opt/p4-validation/docker-test.log`.
-- Separate persistent deployment: command `638d7165-1001-4c1e-802e-136e754637af`, exit 0. API image `sha256:29e00cd545be63d4c9abb5cda82e15c94e108a151ee9bd046b8652b4fce0267e`.
-- HTTPS public checks: frontend HTTP 200, `/api/health` status ok with both dependencies healthy, `/api/users` returns PostgreSQL timestamp.
-- Bootstrap identity is **`aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`**, deliberately a test identifier, not a committed source SHA. Code is still uncommitted. Both archived bootstrap releases exist in S3; future GitHub releases use real commit SHAs.
-- No GitHub workflow or OIDC exchange has run yet. No browser automation was available; public HTTP/API checks passed, UI behavior is covered by Node tests and can be checked manually at the URL.
+## Evidence
 
-## GitHub configuration already created
+- [Backend build/deployment](https://github.com/hoangminh1104/devops-challenge/actions/runs/40091688144) and [frontend build/deployment](https://github.com/hoangminh1104/devops-challenge/actions/runs/40091688188) passed for source `9ca597f938f565117b44227be08f0bfa61ad7dde`, including OIDC and real Docker integration/recovery tests.
+- Subsequent deployment to this sandbox passed through [backend recovery](https://github.com/hoangminh1104/devops-challenge/actions/runs/40102712342) and [frontend recovery](https://github.com/hoangminh1104/devops-challenge/actions/runs/40102752393). The backend reused the exact tested image archive. The frontend was rebuilt from the same source with its new API URL before archiving; it was not a byte-identical copy of the previous environment's build.
+- Public HTTPS checks confirmed frontend identity, healthy PostgreSQL/Redis, and database time. The new database contains fresh demo data; no database migration was performed.
 
-Repository `hoangminh1104/devops-challenge` has environments `production-backend` and `production-frontend`, each restricted to branch `main`; AWS variables and role ARNs are configured. Repository `API_BASE_URL` points at the same CloudFront HTTPS origin. Roles `dom7hc-deploy-github-backend` and `dom7hc-deploy-github-frontend` use GitHub OIDC with repository/environment-scoped subjects and separate permission policies. Both legacy and immutable repository subject formats are explicitly restricted to this repository and environment.
+GitHub environments `production-backend` and `production-frontend` have main-only branch restrictions and the variables listed in [README.md](README.md). Repository `API_BASE_URL` points to the demo origin. Required-reviewer gates are unavailable under the current GitHub plan; successful main releases deploy automatically.
 
-**Required-reviewer gates are unavailable on the repository's current billing plan** (GitHub API 422). Therefore deployments from main are automatic after CI, without environment approval. Main-only environment branch rules are active. Configure a supported plan if mandatory human approval is required; YAML alone does not provide it. Commit/push approval has not yet been given, so workflow files remain local. Active GitHub token has repo access but lacks workflow scope; pushing new workflow files may additionally require updating authentication.
+## Manual verification
 
-## Manual test
-
-1. Open the CloudFront URL, confirm dependency state and database time; press Refresh.
-2. In EC2, select `dom7hc-deploy-api` → Connect → Session Manager. Run:
+Open the demo and click Refresh. In AWS, inspect the ALB target group, S3 objects, CloudFront invalidations and SSM Run Command history. To inspect the API directly, connect to the EC2 instance through Session Manager and run:
 
 ```bash
 curl -fsS http://127.0.0.1:3000/api/health
@@ -50,11 +43,10 @@ curl -fsS http://127.0.0.1:3000/api/users
 sudo docker ps
 ```
 
-3. Once code is committed/pushed with owner approval, inspect **Actions → Problem 4 backend/frontend**. PR runs only validate; main runs deploy. In AWS watch artifact keys, SSM Run Command output, ALB target health and CloudFront invalidations.
-4. For recovery, run the relevant workflow on main with a retained SHA. Initial test identity above is retained, but prefer real known-good GitHub release SHAs after the first workflow deployment.
+Check the release SHA and both dependency fields, not only HTTP status. For archived recovery, dispatch the relevant GitHub workflow from main with a retained full `release_sha`; this changes the running application.
 
-## Charges and cleanup
+## Cleanup ownership
 
-Two EC2 instances/EBS, a public IPv4 address, ALB and three SSM interface endpoints incur ongoing charges; S3/CloudFront incur storage/requests/transfer. No NAT gateway/EIP was allocated. Stopping the API alone does not stop ALB/endpoint/storage charges.
+EC2/EBS, ALB, S3 and CloudFront incur ongoing charges. After preserving data and disabling or retargeting workflows, delete only this deployment's distribution/OAC/cache policy, ALB/listeners/target group, instance/root volume, two custom security groups, versioned buckets and deployment IAM roles/profile.
 
-With owner approval: preserve database data; disable/delete CloudFront then OAC/custom cache policy; delete ALB/listeners and target group; terminate API and NAT instances; delete SSM/S3 endpoints; empty all versions/delete markers before deleting the two buckets; detach/delete custom IAM roles/policies/profile; remove custom security groups, route associations/routes/subnets, detach/delete IGW and delete VPC. Remove GitHub environment variables/environments separately. Do not delete unrelated account resources.
+**Preserve the preexisting VPC, subnets, NAT Gateway, internet gateway and route tables.** Check whether the GitHub OIDC provider is shared before removing it. S3 cleanup must include all versions and delete markers.

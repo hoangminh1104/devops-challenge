@@ -1,63 +1,55 @@
 # Problem 4 — Ship It Twice
 
-Problem 3 is the product: its actual shared `../problem3/api` runs in a non-root Node 24 image with lockfile-based `npm ci`. PostgreSQL and Redis support the API; a small static UI shows dependency health, release identity and database time. Local nginx proxies `/api`; production static files go to private S3/CloudFront and call a build-time HTTPS API URL.
+## Assumptions and why
 
-## Run locally
+- **Problem 3 is the backend source.** I reused its API directly and added a minimal static frontend to demonstrate the complete product.
+- **One private EC2 instance runs the API, PostgreSQL, and Redis.** Docker Compose keeps the exercise small, while a persistent volume preserves PostgreSQL data across application releases.
+- **Infrastructure and runtime secrets are configured separately.** Release pipelines update applications without provisioning networks, resetting dependencies, or embedding secrets in artifacts.
+- **Backend and frontend release independently from `main`.** API changes must remain backward-compatible with the currently deployed frontend.
 
-From the repository root, with Docker Engine/Desktop and Compose v2+:
+## How the pipelines work
 
-```bash
-docker compose -p problem4 -f src/problem4/compose.yaml up --build -d --wait
-curl http://localhost:8080/api/health
-```
+The [backend workflow](../../.github/workflows/problem4-backend.yml) and [frontend workflow](../../.github/workflows/problem4-frontend.yml) validate pull requests without production credentials. Relevant pushes to `main` deploy only after validation passes.
 
-Open `http://localhost:8080`. API also listens on localhost:3000. Only frontend/API publish ports; PostgreSQL has a named data volume. `docker compose -p problem4 -f src/problem4/compose.yaml down` preserves it. `down -v` deliberately deletes local data. The local password is only an example; production uses an external root-owned secret file.
+### Backend: Docker to EC2
 
-## Pipelines and recovery
+1. Build a non-root Node.js image from the shared Problem 3 API using locked dependencies.
+2. Test the image with real PostgreSQL and Redis, including dependency failures, failed-image rollback, and data persistence.
+3. Package the tested image, release identity, Compose configuration, and checksums. Transfer that exact artifact to the deployment job and archive it in S3 under its commit SHA.
+4. Use SSM to download and verify the archive on EC2, then replace only the API container.
+5. Check the expected release SHA and dependency health. If activation fails, restore the previous image and report the deployment as failed.
 
-Root workflows [backend](../../.github/workflows/problem4-backend.yml) and [frontend](../../.github/workflows/problem4-frontend.yml) independently validate PRs without cloud credentials. Backend filters include the shared Problem 3 source, Docker context and integration fixtures. Main pushes transfer tested archives through pinned GitHub artifact actions to separate protected deployment jobs. Only deploy jobs receive OIDC permission. Actions are revision-pinned; job timeouts, main-only guards and per-application concurrency apply to normal releases and manual recovery. Required environment reviewers and main-only environment branch rules must be configured in GitHub separately.
+### Frontend: static files to S3
 
-Backend CI builds and tests the actual image with real PostgreSQL/Redis before `docker save`. The single gzip archive contains image bytes, full commit SHA, immutable Docker image ID, production API Compose file and member checksums. S3 conditional creation rejects different bytes for an existing SHA key. SSM downloads and checks the runner-observed archive SHA-256, loads that image and runs only `compose up --no-deps --pull never api`. It never recreates dependencies. Health must contain the exact release SHA and healthy PostgreSQL/Redis JSON fields. Host `flock` serializes updates. Failure restores the previous API image, checks recovery and still returns failure. Same-SHA retries preserve the last distinct known-good release.
+1. Test and build the SPA with its API URL, then retain the output as a release archive.
+2. Upload content-hashed JavaScript before HTML and preserve older assets for cached pages.
+3. Invalidate CloudFront and compare the publicly served HTML and JavaScript with the expected files.
 
-Frontend keeps the restrictive two-file archive: `index.html` and one SHA-256-named JS asset. SHA archive keys use conditional creation with exact readback comparison on retries, just like backend. `API_BASE_URL` is compiled into the JS, so configuration changes alter its hash. Assets publish before HTML, old assets remain, then CloudFront invalidation and HTTPS full-HTML/exact-asset smoke checks run. API requests time out after 10 seconds so users can retry. Manual recovery republishes archived bytes; it never rebuilds. Failed frontend publication requires explicit archived recovery.
+Both pipelines use temporary AWS credentials through OIDC, separate scoped roles, revision-pinned actions, deployment serialization, and timeouts. Existing release keys reject different archive bytes. Manual workflow dispatch restores retained releases without rebuilding.
 
-For either workflow, dispatch from **main** with a retained full lowercase `release_sha`. Operator equivalents:
+## Verification
 
-```bash
-bash src/problem4/scripts/release-backend.sh recover FULL_40_CHARACTER_SHA
-bash src/problem4/scripts/release-frontend.sh recover FULL_40_CHARACTER_SHA
-```
+Both normal build/deployment pipelines passed, including real Docker integration tests and AWS OIDC authentication:
 
-See [deployment setup and artifact contract](deploy/README.md) for EC2 bootstrap, private-host image loading, IAM, variables and recovery details. Infrastructure provisioning is separate.
+- [Backend build and deployment](https://github.com/hoangminh1104/devops-challenge/actions/runs/40091688144)
+- [Frontend build and deployment](https://github.com/hoangminh1104/devops-challenge/actions/runs/40091688188)
 
-## Verification and current evidence
+Deployment to the intended sandbox, `730335245469`, also passed through both recovery workflows:
 
-**Live application: https://d34e7lkj3dq7h3.cloudfront.net.** See [live resources and UI testing walkthrough](deploy/LIVE.md) for exact names, evidence, GitHub configuration and cleanup. CloudFront routes `/api/*` to the private EC2 through a restricted ALB, so the SPA uses the same HTTPS origin without a custom domain.
+- [Backend recovery deployment](https://github.com/hoangminh1104/devops-challenge/actions/runs/40102712342)
+- [Frontend recovery deployment](https://github.com/hoangminh1104/devops-challenge/actions/runs/40102752393)
 
-From `src/problem4`, Linux Bash and Node 24:
+Public checks confirmed frontend delivery, healthy PostgreSQL/Redis, and database responses. Failed-image rollback was tested in isolation, without deliberately breaking the live application.
 
-```bash
-npm ci --prefix frontend
-npm test --prefix frontend
-RELEASE_SHA=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb API_BASE_URL=https://api.example.com npm run build --prefix frontend
-bash tests/releases.sh
-bash tests/host-contract.sh
-bash tests/docker.sh
-shellcheck scripts/*.sh tests/*.sh tests/doubles/* tests/host-double/*
-actionlint ../../.github/workflows/problem4-backend.yml ../../.github/workflows/problem4-frontend.yml
-bash tests/static.sh
-```
+Demo: **https://d1v3sagma6ldre.cloudfront.net**
 
-Verified locally on 2026-10-24: frontend installation, four UI/build tests (including stalled-fetch abort/retry) and production-configured build; actual release scripts against mocked AWS/CDN; host-script control flow against a Docker double; real tar/checksum/filesystem/flock behavior; ShellCheck 0.10.0, actionlint 1.7.7, Bash/JS syntax, Compose config and IAM JSON parsing. Follow-up `tests/static.sh`, `tests/releases.sh`, `tests/host-contract.sh` and frontend `npm test` all passed. Regression checks cover persistent exported host settings during releases/rollback, frontend byte-identical retry versus changed-byte rejection before site writes, full-HTML mismatch with matching release meta, existing frontend artifact IAM read/list grants, and raw secret-file declarations in both production Compose files. Raw-format Docker runtime behavior was not exercised. The host double also covers success, failed candidate, failed active-SHA retry, startup failure, stale identity, failed dependency health, first-release failure, integrity/allowlist rejection and lock contention. These are supplemental orchestration checks, not container evidence.
+## Deliberately left out
 
-Docker Desktop remains blocked by organization sign-in locally. **The real Docker suite subsequently passed on private EC2**, command `457c36c0-6c9d-41ce-8df7-14f04727f75b`, including HTTP directly/through nginx, non-root execution, CORS, dependency outages, exact image deployment, failed-image recovery, unchanged dependency containers, persisted SQL state, host lock and graceful shutdown. GitHub CI requires that same suite before packaging.
+- Infrastructure as code, multi-instance availability, autoscaling, and zero-downtime deployment.
+- Database migrations, backups/restores, and database rollback.
+- Monitoring infrastructure, artifact signing, release cleanup, and automated frontend rollback.
+- TLS between CloudFront and the ALB; browser traffic uses HTTPS.
 
-AWS account `516418317632`, `ap-southeast-1`: private EC2 has Docker/Compose, PostgreSQL/Redis and the tested API. Bootstrap deployment command `638d7165-1001-4c1e-802e-136e754637af` succeeded. HTTPS checks through CloudFront returned frontend 200, healthy dependencies and real database time. Initial test release uses `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`, not a source commit. A dedicated NAT instance provides egress; ALB reaches API port 3000 only from its security group. Details and limitations are in LIVE.md.
+API replacement briefly interrupts requests. Application rollback does not reverse database changes. Main-only deployment restrictions are configured, but required-reviewer gates are unavailable under the current GitHub plan, so successful main releases deploy automatically.
 
-**GitHub end-to-end deployment passed for commit `9ca597f938f565117b44227be08f0bfa61ad7dde`:** [backend build and deployment](https://github.com/hoangminh1104/devops-challenge/actions/runs/40091688144) and [frontend build and deployment](https://github.com/hoangminh1104/devops-challenge/actions/runs/40091688188). Both used AWS OIDC successfully. After completion, public HTTPS checks confirmed that frontend HTML and API health report that exact commit, both dependencies are healthy, and `/api/users` returns database time. The backend GitHub build also passed the real Docker integration/recovery suite. Earlier bootstrap-only statements in LIVE.md describe the initial deployment; this paragraph records the current verified release.
-
-GitHub environment main-only branch rules are active, but the current billing plan rejects required-reviewer gates; deployment from main is automatic after successful CI. GitHub emitted action-runtime Node20 deprecation annotations; its Node24 compatibility execution succeeded. Manual browser verification remains available at the live URL. Workflow-dispatch recovery has not been exercised against the live environment; real failed-image recovery passed in the isolated Docker suite.
-
-## Assumptions and omissions
-
-Single Linux amd64 EC2, preloaded dependency images, external runtime secrets, and no schema migrations. API recreation briefly interrupts requests; no zero-downtime/HA claim. GitHub concurrency is not FIFO and can replace pending jobs; host locking protects overlapping SSM executions. Runner timeout does not cancel an already-running SSM command: inspect its ID before retrying. Process kill/reboot during update may need manual archived recovery. Retain known-good local images and S3 archives; cleanup, database backups/restores, secret rotation, monitoring, Terraform, autoscaling, signatures and automated frontend rollback are outside this small submission. App rollback does not roll back data.
+Setup, resource details, and cleanup instructions are in [deploy/README.md](deploy/README.md) and [deploy/LIVE.md](deploy/LIVE.md).
